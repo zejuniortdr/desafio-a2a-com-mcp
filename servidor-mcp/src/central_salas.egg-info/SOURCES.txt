@@ -1,9 +1,0 @@
-pyproject.toml
-src/central_salas/__init__.py
-src/central_salas.egg-info/PKG-INFO
-src/central_salas.egg-info/SOURCES.txt
-src/central_salas.egg-info/dependency_links.txt
-src/central_salas.egg-info/entry_points.txt
-src/central_salas.egg-info/requires.txt
-src/central_salas.egg-info/top_level.txt
-tests/test_dominio.py

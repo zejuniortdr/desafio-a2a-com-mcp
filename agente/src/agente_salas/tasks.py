@@ -52,8 +52,8 @@ class Task:
     input_key: str | None = None
     enum: list[str] = field(default_factory=list)
 
-    def mensagem(self, role: str, texto: str, com_ids: bool = True) -> dict:
-        m: dict = {"messageId": novo_id("msg"), "role": role, "parts": [{"text": texto}]}
+    def mensagem(self, role: str, texto: str, com_ids: bool = True, message_id: str | None = None) -> dict:
+        m: dict = {"messageId": message_id or novo_id("msg"), "role": role, "parts": [{"text": texto}]}
         if com_ids:
             m.update(taskId=self.id, contextId=self.context_id)
         self.history.append(m)
