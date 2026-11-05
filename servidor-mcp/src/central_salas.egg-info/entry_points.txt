@@ -1,0 +1,2 @@
+[console_scripts]
+central-salas = central_salas.app:main
