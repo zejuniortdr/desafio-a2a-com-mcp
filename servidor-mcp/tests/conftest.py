@@ -32,5 +32,9 @@ def rpc(client, metodo, params, nome=None, caps=CAPS_ELIC, omitir=None, id_="1")
     return r.status_code, r.json()
 
 
-def call(client, nome, args, **kw):
-    return rpc(client, "tools/call", {"name": nome, "arguments": args}, nome, **kw)
+def call(client, nome, args, extra=None, **kw):
+    return rpc(client, "tools/call", {"name": nome, "arguments": args, **(extra or {})}, nome, **kw)
+
+
+def texto_de(res):
+    return " ".join(p["text"] for p in res["content"])
