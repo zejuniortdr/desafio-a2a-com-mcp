@@ -26,6 +26,9 @@ agente/.venv/bin/agente-salas
 python3 validador/validar.py --agente http://localhost:7300 --mcp http://localhost:7301
 ```
 
+Atalho equivalente com `make` (a partir da raiz): `make install`, `make servidor`, `make agente`, `make validar`, `make test`.
+Sem `REQUEST_STATE_SECRET` exportado, `make servidor` gera um segredo novo a cada execucao.
+
 O servidor MCP recusa subir sem `REQUEST_STATE_SECRET` valido. Variaveis opcionais (defaults do enunciado):
 `MCP_PORT=7301`, `A2A_PORT=7300`, `MCP_URL=http://127.0.0.1:7301/mcp`, `PUBLIC_URL=http://127.0.0.1:7300`, `DADOS_DIR`.
 
