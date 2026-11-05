@@ -87,6 +87,23 @@ def test_retry_sobrevive_a_restart(cfg):
     assert resp["result"]["structuredContent"]["sala"] == "sala-mirante"
 
 
+@pytest.mark.parametrize("segundos, expira", [(599, False), (601, True)])
+def test_state_expira_em_10_minutos(client, monkeypatch, segundos, expira):
+    import time
+    from types import SimpleNamespace
+
+    from mcp.server import request_state
+
+    chave, estado, _ = pausar(client)
+    agora = time.time()
+    monkeypatch.setattr(request_state, "time", SimpleNamespace(time=lambda: agora + segundos))
+    _, b = retomar(client, chave, estado, {"action": "accept", "content": {"sala": "sala-fusca"}})
+    if expira:
+        assert b["error"]["code"] == -32602
+    else:
+        assert b["result"]["structuredContent"]["reservado"] is True
+
+
 def test_state_de_outro_secret_e_rejeitado(client):
     chave, estado, _ = pausar(client)
     outro = carregar_config({"REQUEST_STATE_SECRET": "b" * 64})

@@ -2,7 +2,7 @@
 name = "agente-salas"
 version = "1.0.0"
 requires-python = ">=3.10"
-dependencies = ["httpx==0.28.1", "uvicorn==0.54.0", "starlette==1.10.0"]
+dependencies = ["httpx==0.28.1", "uvicorn==0.54.0", "starlette==1.7.0"]
 
 [project.optional-dependencies]
 dev = ["pytest==9.2.0", "pytest-asyncio==1.4.1.post1"]

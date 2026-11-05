@@ -9,8 +9,12 @@ Sem LLM no caminho de execucao: o mesmo pedido produz sempre o mesmo resultado.
 Requisitos: Python >= 3.10 e `make`. A partir de um clone limpo, na raiz do repositorio:
 
 ```bash
-make install    # um venv por processo (servidor-mcp/.venv e agente/.venv), versoes travadas nos pyproject.toml
-make servidor   # terminal 1: servidor MCP na 7301 (stderr mostra metodo, id e traceparent de cada request)
+make install    # um venv por processo (servidor-mcp/.venv e agente/.venv), dependencias diretas travadas com == nos pyproject.toml
+
+# terminal 1: servidor MCP na 7301 (stderr mostra metodo, id e traceparent de cada request)
+export REQUEST_STATE_SECRET=$(python3 -c "import secrets; print(secrets.token_hex(32))")
+make servidor   # para reiniciar o servidor, rode de novo so esta linha, no mesmo terminal (mesmo segredo)
+
 make agente     # terminal 2: agente A2A na 7300
 make validar    # terminal 3: validador do starter contra os dois processos
 ```
@@ -24,13 +28,10 @@ make validar    # terminal 3: validador do starter contra os dois processos
 | `make test` | roda o pytest dos dois pacotes (servidor-mcp e agente) |
 | `make clean` | remove os dois venvs |
 
-**Segredo do `requestState`:** o servidor MCP recusa subir sem `REQUEST_STATE_SECRET` valido (>= 32 bytes aleatorios; nunca versionar o valor).
-Se a variavel nao estiver exportada, `make servidor` gera um segredo novo a cada execucao, o que basta para o validador. Para um `requestState`
-continuar valido depois de reiniciar o servidor (passo 12 do avaliador), exporte o mesmo valor antes de cada subida:
-
-```bash
-export REQUEST_STATE_SECRET=$(python3 -c "import secrets; print(secrets.token_hex(32))")
-```
+**Segredo do `requestState`:** o servidor MCP recusa subir com `REQUEST_STATE_SECRET` vazio ou com menos de 32 bytes; gere sempre com o
+comando acima (32 bytes aleatorios) e nunca versione o valor. So o alvo `servidor` recebe a variavel. Sem o `export`, `make servidor` gera um
+segredo novo a cada subida: o validador passa, mas um `requestState` emitido antes de um restart deixa de valer. Por isso o `export` vem
+antes, e o restart do passo 12 do avaliador precisa acontecer no mesmo terminal.
 
 <details>
 <summary>Comandos equivalentes sem <code>make</code></summary>
@@ -64,14 +65,25 @@ a escolha contra o `enum` guardado (fora dele a Task segue pausada e repete a li
   cifrado, nao so assinado). O SDK tambem amarra o state ao request (adulterar `arguments` no retry e rejeitado com `-32602`).
   O pedido original (sala, inicio, fim, responsavel) viaja dentro do state selado; o servidor nao guarda nada entre o `input_required` e o retry,
   entao um retry apos restart do processo funciona (mesma chave).
-- **Validade:** 600 s (10 min), dentro da faixa de 5 a 30 min. Expirado ou adulterado: `-32602`.
-- **MRTR manual em vez de `Resolve/Elicit`:** a ferramenta devolve `InputRequiredResult` diretamente. O `Resolve` reexecuta o resolver com os
-  argumentos do retry (nao confiaveis) e nao sela o pedido original; a forma manual deixa o state selado como unica fonte do pedido.
+- **Validade:** 600 s (10 min), dentro da faixa de 5 a 30 min (`TTL_REQUEST_STATE_S` em `servidor-mcp/src/central_salas/app.py`).
+  Expirado ou adulterado: `-32602` (coberto em `servidor-mcp/tests/test_mrtr.py`: 599 s conclui, 601 s rejeita).
+- **MRTR manual em vez de `Resolve/Elicit`:** a ferramenta devolve `InputRequiredResult` diretamente. O enunciado exige que o `requestState`
+  carregue tudo que o servidor precisa para reconstruir o pedido; com `Resolve`, o SDK sela so as respostas ja dadas, nao o pedido
+  (`mcp/server/mcpserver/resolve.py`, docstring do modulo):
+
+  ```text
+  Only *asked* outcomes ride `request_state`, so each question is asked once. Resolver
+  bodies may re-run on every round; a recorded outcome is consulted only when the
+  body asks its question again
+  ```
+
+  A forma manual sela `sala`, `inicio`, `fim` e `responsavel` e reconstroi o pedido so a partir do state (`_retomar` em `tools.py`).
+  O SDK nao deixa misturar as duas formas: uma tool com parametro `Resolve(...)` nao pode devolver `InputRequiredResult` (`tools/base.py`).
 - **Estado das Tasks:** dicionario em memoria protegido por `Lock` (`TaskStore`), um registro por Task com o proprio `requestState`.
   Reservas tambem em memoria; ambos somem no restart (permitido pelo enunciado, exceto o `requestState`, que e autocontido).
 - **A2A a mao:** JSON-RPC 2.0 minimo (`SendMessage`, `GetTask`) sobre Starlette; `SendMessage` e sincrono e devolve a Task ja pausada ou terminal
   (`SUBMITTED` e `WORKING` sao transicoes reais, validadas por maquina de estados; estado terminal e definitivo).
-- **Erros A2A:** Task terminal `-32004`, Task inexistente `-32001`, pedido fora do formato `-32602`, metodo desconhecido `-32601`, JSON invalido `-32700`.
+- **Erros A2A:** Task terminal `-32004` (`UnsupportedOperationError`), Task inexistente `-32001` (`TaskNotFoundError`), pedido fora do formato `-32602`, metodo desconhecido `-32601`, JSON invalido `-32700`.
 - **Validacao de entrada de data:** `inicio`/`fim` sem fuso ou fora do ISO 8601 devolvem `Intervalo invalido: informe inicio e fim em ISO 8601 com fuso`
   (o enunciado nao define essa mensagem; escolha minima para nao quebrar o servidor).
 - **Descoberta:** a cada Task o agente faz `tools/list` e `resources/read politica://uso` (extrai a versao da primeira linha) antes do `tools/call`;

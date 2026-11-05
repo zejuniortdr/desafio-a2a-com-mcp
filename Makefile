@@ -2,12 +2,11 @@
 SERVIDOR_PY := servidor-mcp/.venv/bin
 AGENTE_PY   := agente/.venv/bin
 
-# Se REQUEST_STATE_SECRET nao estiver exportado, gera um novo a cada `make servidor`.
-# Para um retry sobreviver a restart, exporte o mesmo valor antes: export REQUEST_STATE_SECRET=$(python3 -c "import secrets; print(secrets.token_hex(32))")
-REQUEST_STATE_SECRET ?= $(shell python3 -c "import secrets; print(secrets.token_hex(32))")
-export REQUEST_STATE_SECRET
-
 .PHONY: install servidor agente validar test clean
+
+# Se REQUEST_STATE_SECRET nao estiver exportado, gera um novo a cada `make servidor` (so o servidor recebe o segredo).
+# Para um retry sobreviver a restart, exporte o mesmo valor antes: export REQUEST_STATE_SECRET=$(python3 -c "import secrets; print(secrets.token_hex(32))")
+servidor: export REQUEST_STATE_SECRET ?= $(shell python3 -c "import secrets; print(secrets.token_hex(32))")
 
 install:
 	python3 -m venv servidor-mcp/.venv && $(SERVIDOR_PY)/pip install -q -e 'servidor-mcp[dev]'
