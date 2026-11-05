@@ -94,7 +94,7 @@ a escolha contra o `enum` guardado (fora dele a Task segue pausada e repete a li
 ## Saida do validador
 
 ```text
-trace-id desta execucao: e2cdf20e1c902762fbc206d6b4150f9d
+trace-id desta execucao: a65b1efb1dda409ee3ff46f8d4b0bf69
 procure esse valor no stderr do servidor MCP para conferir a propagacao do traceparent.
 
 PASS 01 tools/list traz as tres tools
