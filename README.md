@@ -6,34 +6,48 @@ Sem LLM no caminho de execucao: o mesmo pedido produz sempre o mesmo resultado.
 
 ## Como rodar
 
-Requisitos: Python >= 3.10. A partir de um clone limpo, na raiz do repositorio:
+Requisitos: Python >= 3.10 e `make`. A partir de um clone limpo, na raiz do repositorio:
 
 ```bash
-# 1. dependencias (um venv por processo, versoes travadas nos pyproject.toml)
-python3 -m venv servidor-mcp/.venv && servidor-mcp/.venv/bin/pip install -e servidor-mcp
-python3 -m venv agente/.venv       && agente/.venv/bin/pip install -e agente
-
-# 2. segredo do requestState (>= 32 bytes aleatorios; nunca versionar o valor)
-export REQUEST_STATE_SECRET=$(python3 -c "import secrets; print(secrets.token_hex(32))")
-
-# 3. terminal 1: servidor MCP (stderr mostra metodo, id e traceparent de cada request)
-servidor-mcp/.venv/bin/central-salas
-
-# 4. terminal 2: agente A2A
-agente/.venv/bin/agente-salas
-
-# 5. terminal 3: validador do starter
-python3 validador/validar.py --agente http://localhost:7300 --mcp http://localhost:7301
+make install    # um venv por processo (servidor-mcp/.venv e agente/.venv), versoes travadas nos pyproject.toml
+make servidor   # terminal 1: servidor MCP na 7301 (stderr mostra metodo, id e traceparent de cada request)
+make agente     # terminal 2: agente A2A na 7300
+make validar    # terminal 3: validador do starter contra os dois processos
 ```
 
-Atalho equivalente com `make` (a partir da raiz): `make install`, `make servidor`, `make agente`, `make validar`, `make test`.
-Sem `REQUEST_STATE_SECRET` exportado, `make servidor` gera um segredo novo a cada execucao.
+| Alvo | O que faz |
+|------|-----------|
+| `make install` | cria os dois venvs e instala os pacotes (com extras de teste) |
+| `make servidor` | sobe o servidor MCP (`central-salas`) |
+| `make agente` | sobe o agente A2A (`agente-salas`) |
+| `make validar` | roda `python3 validador/validar.py --agente http://localhost:7300 --mcp http://localhost:7301` |
+| `make test` | roda o pytest dos dois pacotes (servidor-mcp e agente) |
+| `make clean` | remove os dois venvs |
 
-O servidor MCP recusa subir sem `REQUEST_STATE_SECRET` valido. Variaveis opcionais (defaults do enunciado):
-`MCP_PORT=7301`, `A2A_PORT=7300`, `MCP_URL=http://127.0.0.1:7301/mcp`, `PUBLIC_URL=http://127.0.0.1:7300`, `DADOS_DIR`.
+**Segredo do `requestState`:** o servidor MCP recusa subir sem `REQUEST_STATE_SECRET` valido (>= 32 bytes aleatorios; nunca versionar o valor).
+Se a variavel nao estiver exportada, `make servidor` gera um segredo novo a cada execucao, o que basta para o validador. Para um `requestState`
+continuar valido depois de reiniciar o servidor (passo 12 do avaliador), exporte o mesmo valor antes de cada subida:
 
-Testes unitarios/integracao (opcional): `servidor-mcp/.venv/bin/pip install -e 'servidor-mcp[dev]' && servidor-mcp/.venv/bin/pytest servidor-mcp`
-e o equivalente em `agente/`.
+```bash
+export REQUEST_STATE_SECRET=$(python3 -c "import secrets; print(secrets.token_hex(32))")
+```
+
+<details>
+<summary>Comandos equivalentes sem <code>make</code></summary>
+
+```bash
+python3 -m venv servidor-mcp/.venv && servidor-mcp/.venv/bin/pip install -e servidor-mcp
+python3 -m venv agente/.venv       && agente/.venv/bin/pip install -e agente
+export REQUEST_STATE_SECRET=$(python3 -c "import secrets; print(secrets.token_hex(32))")
+servidor-mcp/.venv/bin/central-salas      # terminal 1
+agente/.venv/bin/agente-salas             # terminal 2
+python3 validador/validar.py --agente http://localhost:7300 --mcp http://localhost:7301   # terminal 3
+```
+
+</details>
+
+Variaveis opcionais (defaults do enunciado): `MCP_PORT=7301`, `A2A_PORT=7300`, `MCP_URL=http://127.0.0.1:7301/mcp`,
+`PUBLIC_URL=http://127.0.0.1:7300`, `DADOS_DIR`.
 
 ## Onde a ponte acontece
 
