@@ -1,0 +1,8 @@
+pyproject.toml
+src/agente_salas/__init__.py
+src/agente_salas.egg-info/PKG-INFO
+src/agente_salas.egg-info/SOURCES.txt
+src/agente_salas.egg-info/dependency_links.txt
+src/agente_salas.egg-info/entry_points.txt
+src/agente_salas.egg-info/requires.txt
+src/agente_salas.egg-info/top_level.txt

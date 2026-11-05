@@ -1,0 +1,2 @@
+[console_scripts]
+agente-salas = agente_salas.main:main
