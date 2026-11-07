@@ -1,19 +1,19 @@
 # A Ponte: agente A2A com MCP por dentro
 
-Hill Valley Tech: cinco salas de reuniao expostas como **servidor MCP** (`servidor-mcp/`, porta 7301) e um
+Hill Valley Tech: cinco salas de reunião expostas como **servidor MCP** (`servidor-mcp/`, porta 7301) e um
 **agente A2A** (`agente/`, porta 7300) que consome esse servidor como host MCP e se oferece ao mundo como servidor A2A.
-Sem LLM no caminho de execucao: o mesmo pedido produz sempre o mesmo resultado.
+Sem LLM no caminho de execução: o mesmo pedido produz sempre o mesmo resultado.
 
 ## Como rodar
 
-Requisitos: Python >= 3.10 e `make`. A partir de um clone limpo, na raiz do repositorio:
+Requisitos: Python >= 3.10 e `make`. A partir de um clone limpo, na raiz do repositório:
 
 ```bash
-make install    # um venv por processo (servidor-mcp/.venv e agente/.venv), dependencias diretas travadas com == nos pyproject.toml
+make install    # um venv por processo (servidor-mcp/.venv e agente/.venv), dependências diretas travadas com == nos pyproject.toml
 
-# terminal 1: servidor MCP na 7301 (stderr mostra metodo, id e traceparent de cada request)
+# terminal 1: servidor MCP na 7301 (o stderr mostra método, id e traceparent de cada request)
 export REQUEST_STATE_SECRET=$(python3 -c "import secrets; print(secrets.token_hex(32))")
-make servidor   # para reiniciar o servidor, rode de novo so esta linha, no mesmo terminal (mesmo segredo)
+make servidor   # para reiniciar o servidor, rode de novo só esta linha, no mesmo terminal (mesmo segredo)
 
 make agente     # terminal 2: agente A2A na 7300
 make validar    # terminal 3: validador do starter contra os dois processos
@@ -22,16 +22,17 @@ make validar    # terminal 3: validador do starter contra os dois processos
 | Alvo | O que faz |
 |------|-----------|
 | `make install` | cria os dois venvs e instala os pacotes (com extras de teste) |
-| `make servidor` | sobe o servidor MCP (`central-salas`) |
-| `make agente` | sobe o agente A2A (`agente-salas`) |
+| `make servidor` | sobe o servidor MCP (comando `central-salas`; no protocolo ele se identifica como `central-de-salas`) |
+| `make agente` | sobe o agente A2A (comando `agente-salas`) |
 | `make validar` | roda `python3 validador/validar.py --agente http://localhost:7300 --mcp http://localhost:7301` |
 | `make test` | roda o pytest dos dois pacotes (servidor-mcp e agente) |
 | `make clean` | remove os dois venvs |
 
-**Segredo do `requestState`:** o servidor MCP recusa subir com `REQUEST_STATE_SECRET` vazio ou com menos de 32 bytes; gere sempre com o
-comando acima (32 bytes aleatorios) e nunca versione o valor. So o alvo `servidor` recebe a variavel. Sem o `export`, `make servidor` gera um
-segredo novo a cada subida: o validador passa, mas um `requestState` emitido antes de um restart deixa de valer. Por isso o `export` vem
-antes, e o restart do passo 12 do avaliador precisa acontecer no mesmo terminal.
+**Segredo do `requestState`:** o servidor MCP recusa subir se `REQUEST_STATE_SECRET` estiver vazio, não for hexadecimal ou
+tiver menos de 32 bytes depois de decodificado (64 caracteres hex). Gere sempre com o comando acima (`token_hex(32)`: 32 bytes
+aleatórios) e nunca versione o valor. Só o alvo `servidor` recebe a variável. Sem o `export`, `make servidor`
+gera um segredo novo a cada subida: o validador passa, mas um `requestState` emitido antes de um restart deixa de valer. Por isso o
+`export` vem antes, e o restart do passo 12 do fluxo do avaliador precisa acontecer no mesmo terminal.
 
 <details>
 <summary>Comandos equivalentes sem <code>make</code></summary>
@@ -47,29 +48,32 @@ python3 validador/validar.py --agente http://localhost:7300 --mcp http://localho
 
 </details>
 
-Variaveis opcionais (defaults do enunciado): `MCP_PORT=7301`, `A2A_PORT=7300`, `MCP_URL=http://127.0.0.1:7301/mcp`,
-`PUBLIC_URL=http://127.0.0.1:7300`, `DADOS_DIR`.
+Variáveis opcionais, com os valores padrão do enunciado: `MCP_PORT=7301`, `A2A_PORT=7300`, `MCP_URL=http://127.0.0.1:7301/mcp`,
+`PUBLIC_URL=http://127.0.0.1:7300`. Há ainda `DADOS_DIR`, cujo padrão é a pasta `dados/` na raiz do repositório.
 
 ## Onde a ponte acontece
 
-Tudo vive em [`agente/src/agente_salas/ponte.py`](agente/src/agente_salas/ponte.py) (`BridgeService`), o unico modulo que conhece os dois protocolos.
-Na **ida**, `_aplicar` recebe do `McpClient` (cliente httpx cru, sem callback de elicitation, entao o `input_required` chega intacto) o resultado
-`input_required` e o transforma em `TASK_STATE_INPUT_REQUIRED`: guarda `requestState`, a chave de `inputRequests` e o `enum` na propria `Task`
-e devolve ao cliente A2A somente a linha `alternativas: a, b`. Na **volta**, `continuar` recebe `escolha=<id>` num `SendMessage` com `taskId`, valida
-a escolha contra o `enum` guardado (fora dele a Task segue pausada e repete a lista) e repete o `tools/call` com **id JSON-RPC novo**,
-`inputResponses` sob a mesma chave e o `requestState` ecoado sem abrir. O DTO de saida (`task_dto` em `a2a.py`) nunca serializa o estado da pausa.
+Tudo vive em [`agente/src/agente_salas/ponte.py`](agente/src/agente_salas/ponte.py) (`BridgeService`), o único módulo que conhece os dois protocolos.
+Na **ida**, `_aplicar` recebe do `McpClient` (cliente httpx cru, sem callback de elicitation, então o `input_required` chega intacto) o resultado
+`input_required` e o transforma em `TASK_STATE_INPUT_REQUIRED`: guarda o `requestState`, a chave de `inputRequests` e o `enum` na própria `Task`
+e devolve ao cliente A2A, como mensagem da Task, somente a linha `alternativas: a, b`. Na **volta**, `continuar` recebe `escolha=<id>` num
+`SendMessage` com `taskId`, confere a escolha contra o `enum` guardado (fora dele a Task segue pausada e repete a lista) e repete o `tools/call`
+com **id JSON-RPC novo**, `inputResponses` sob a mesma chave e o `requestState` ecoado sem abrir. O DTO de saída (`task_dto` em `a2a.py`) nunca
+serializa o estado da pausa.
 
-## Decisoes tecnicas
+## Decisões técnicas
 
-- **Protecao do `requestState`:** `RequestStateSecurity` do SDK `mcp` 2.3.0 (AES-256-GCM, chave derivada por HKDF de `REQUEST_STATE_SECRET`;
-  cifrado, nao so assinado). O SDK tambem amarra o state ao request (adulterar `arguments` no retry e rejeitado com `-32602`).
-  O pedido original (sala, inicio, fim, responsavel) viaja dentro do state selado; o servidor nao guarda nada entre o `input_required` e o retry,
-  entao um retry apos restart do processo funciona (mesma chave).
+- **Proteção do `requestState`:** `RequestStateSecurity` do SDK `mcp` 2.3.0 (AES-256-GCM, chave derivada por HKDF de `REQUEST_STATE_SECRET`;
+  cifrado, não só assinado). O SDK também amarra o state ao request: adulterar `arguments` no retry é rejeitado com `-32602`.
+  O pedido original (sala, início, fim, responsável) viaja dentro do state selado; o servidor não guarda nada entre o `input_required` e o retry,
+  então um retry após restart do processo funciona (desde que a chave seja a mesma).
 - **Validade:** 600 s (10 min), dentro da faixa de 5 a 30 min (`TTL_REQUEST_STATE_S` em `servidor-mcp/src/central_salas/app.py`).
   Expirado ou adulterado: `-32602` (coberto em `servidor-mcp/tests/test_mrtr.py`: 599 s conclui, 601 s rejeita).
+- **Capability de elicitation:** em conflito com alternativas, se o `_meta` do request não declara elicitation em form mode, o servidor responde
+  `-32021` com `data.requiredCapabilities` em vez de devolver o `input_required`.
 - **MRTR manual em vez de `Resolve/Elicit`:** a ferramenta devolve `InputRequiredResult` diretamente. O enunciado exige que o `requestState`
-  carregue tudo que o servidor precisa para reconstruir o pedido; com `Resolve`, o SDK sela so as respostas ja dadas, nao o pedido
-  (`mcp/server/mcpserver/resolve.py`, docstring do modulo):
+  carregue tudo de que o servidor precisa para reconstruir o pedido; com `Resolve`, o SDK sela só as respostas já dadas, não o pedido
+  (`mcp/server/mcpserver/resolve.py`, docstring do módulo):
 
   ```text
   Only *asked* outcomes ride `request_state`, so each question is asked once. Resolver
@@ -77,21 +81,24 @@ a escolha contra o `enum` guardado (fora dele a Task segue pausada e repete a li
   body asks its question again
   ```
 
-  A forma manual sela `sala`, `inicio`, `fim` e `responsavel` e reconstroi o pedido so a partir do state (`_retomar` em `tools.py`).
-  O SDK nao deixa misturar as duas formas: uma tool com parametro `Resolve(...)` nao pode devolver `InputRequiredResult` (`tools/base.py`).
-- **Estado das Tasks:** dicionario em memoria protegido por `Lock` (`TaskStore`), um registro por Task com o proprio `requestState`.
-  Reservas tambem em memoria; ambos somem no restart (permitido pelo enunciado, exceto o `requestState`, que e autocontido).
-- **A2A a mao:** JSON-RPC 2.0 minimo (`SendMessage`, `GetTask`) sobre Starlette; `SendMessage` e sincrono e devolve a Task ja pausada ou terminal
-  (`SUBMITTED` e `WORKING` sao transicoes reais, validadas por maquina de estados; estado terminal e definitivo).
-- **Erros A2A:** Task terminal `-32004` (`UnsupportedOperationError`), Task inexistente `-32001` (`TaskNotFoundError`), pedido fora do formato `-32602`, metodo desconhecido `-32601`, JSON invalido `-32700`.
-- **Validacao de entrada de data:** `inicio`/`fim` sem fuso ou fora do ISO 8601 devolvem `Intervalo invalido: informe inicio e fim em ISO 8601 com fuso`
-  (o enunciado nao define essa mensagem; escolha minima para nao quebrar o servidor).
-- **Descoberta:** a cada Task o agente faz `tools/list` e `resources/read politica://uso` (extrai a versao da primeira linha) antes do `tools/call`;
-  sem sessao, todo request leva `_meta` completo e headers espelhados (`MCP-Protocol-Version`, `Mcp-Method`, `Mcp-Name`).
-- **traceparent:** o trace-id do header A2A (ou um novo, se ausente/invalido) vai em todos os requests MCP da Task, com span-id novo a cada request;
-  continuacoes sem header herdam o trace da Task.
+  A forma manual sela `sala`, `inicio`, `fim` e `responsavel` e reconstrói o pedido só a partir do state (`_retomar` em `tools.py`).
+  O SDK não deixa misturar as duas formas: uma tool com parâmetro `Resolve(...)` não pode devolver `InputRequiredResult` (`tools/base.py`).
+- **Estado das Tasks:** no agente, dicionário em memória protegido por `Lock` (`TaskStore`), um registro por Task com o próprio `requestState`.
+  As reservas ficam em memória no servidor MCP. Ambos somem no restart, o que o enunciado permite; o `requestState` é a exceção, porque é autocontido.
+- **A2A à mão:** JSON-RPC 2.0 mínimo (`SendMessage`, `GetTask`) sobre Starlette. `SendMessage` é síncrono e devolve a Task já pausada ou terminal
+  (`SUBMITTED` e `WORKING` são transições reais, validadas por máquina de estados; estado terminal é definitivo).
+- **Erros A2A:** Task terminal `-32004` (`UnsupportedOperationError`); Task inexistente `-32001` (`TaskNotFoundError`); pedido fora do formato,
+  ou mensagem para Task que não está aguardando resposta, `-32602`; método desconhecido `-32601`; requisição JSON-RPC inválida `-32600`;
+  JSON inválido `-32700`.
+- **Validação de entrada de data:** `inicio`/`fim` sem fuso ou fora do ISO 8601 devolvem `Intervalo invalido: informe inicio e fim em ISO 8601 com fuso`
+  (o enunciado não define essa mensagem; escolha mínima para não quebrar o servidor).
+- **Descoberta:** no pedido inicial de cada Task, o agente faz `tools/list` e `resources/read politica://uso` (extrai a versão da primeira linha)
+  antes do `tools/call`. Na continuação, relê só o resource antes do retry. Sem sessão, todo request leva `_meta` completo e os headers espelhados
+  (`MCP-Protocol-Version`, `Mcp-Method` e, em `tools/call` e `resources/read`, `Mcp-Name`).
+- **traceparent:** o trace-id do header A2A (ou um novo, se ausente ou inválido) vai em todos os requests MCP da Task, com span-id novo a cada request;
+  continuações sem header herdam o trace da Task.
 
-## Saida do validador
+## Saída do validador
 
 ```text
 trace-id desta execucao: a65b1efb1dda409ee3ff46f8d4b0bf69
