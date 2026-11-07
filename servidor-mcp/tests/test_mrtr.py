@@ -119,7 +119,7 @@ def test_sem_alternativa_e_erro_de_execucao(client):
     assert b["result"]["isError"] is True and "Sem alternativas disponiveis no intervalo" in texto_de(b["result"])
 
 
-@pytest.mark.parametrize("secret", ["", "curto", "x" * 31])
+@pytest.mark.parametrize("secret", ["", "curto", "x" * 31, "a" * 32, "z" * 64])
 def test_secret_invalido_na_config(secret):
     with pytest.raises(ConfigInvalida):
         carregar_config({"REQUEST_STATE_SECRET": secret})
