@@ -22,3 +22,6 @@ testpaths = ["tests"]
 pythonpath = ["src"]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
+# ponytail: starlette 1.7 pede httpx2 no TestClient, mas httpx2 exige Python >= 3.11 e o projeto suporta 3.10.
+# Remover quando o piso subir para 3.11 e httpx2 entrar nos extras dev.
+filterwarnings = ["ignore:Using `httpx` with `starlette.testclient` is deprecated"]
