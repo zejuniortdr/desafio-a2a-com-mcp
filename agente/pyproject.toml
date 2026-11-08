@@ -1,0 +1,27 @@
+[project]
+name = "agente-salas"
+version = "1.0.0"
+requires-python = ">=3.10"
+dependencies = ["httpx==0.28.1", "uvicorn==0.54.0", "starlette==1.7.0"]
+
+[project.optional-dependencies]
+dev = ["pytest==9.2.0", "pytest-asyncio==1.4.1.post1"]
+
+[project.scripts]
+agente-salas = "agente_salas.main:main"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+# ponytail: starlette 1.7 pede httpx2 no TestClient, mas httpx2 exige Python >= 3.11 e o projeto suporta 3.10.
+# Remover quando o piso subir para 3.11 e httpx2 entrar nos extras dev.
+filterwarnings = ["ignore:Using `httpx` with `starlette.testclient` is deprecated"]
