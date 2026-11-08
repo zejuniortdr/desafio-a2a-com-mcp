@@ -1,3 +1,5 @@
+[![testes](https://github.com/zejuniortdr/desafio-a2a-com-mcp/actions/workflows/testes.yml/badge.svg)](https://github.com/zejuniortdr/desafio-a2a-com-mcp/actions/workflows/testes.yml)
+
 # A Ponte: agente A2A com MCP por dentro
 
 Hill Valley Tech: cinco salas de reunião expostas como **servidor MCP** (`servidor-mcp/`, porta 7301) e um
