@@ -18,6 +18,11 @@ def repo() -> ReservaRepo:
     return ReservaRepo(carregar_reservas(DADOS / "reservas.json"))
 
 
+def intervalo(sala: str, ini: str, fim: str):
+    _, i, f = validar(sala, d("03", ini), d("03", fim), SALAS)
+    return i, f
+
+
 @pytest.mark.parametrize(
     "sala,ini,fim,msg",
     [
@@ -39,6 +44,7 @@ def repo() -> ReservaRepo:
 def test_validar_erros(sala, ini, fim, msg):
     with pytest.raises(ErroDeNegocio) as e:
         validar(sala, ini, fim, SALAS)
+
     assert str(e.value) == msg
 
 
@@ -53,6 +59,7 @@ def test_validar_erros(sala, ini, fim, msg):
 )
 def test_validar_bordas_ok(ini, fim):
     sala, i, f = validar("sala-aquario", ini, fim, SALAS)
+
     assert sala.id == "sala-aquario" and isinstance(i, datetime) and f > i
 
 
@@ -61,35 +68,67 @@ def test_validar_20h01_fora():
         validar("sala-aquario", d("03", "19:00"), d("03", "20:01"), SALAS)
 
 
-def test_conflitos_e_adjacencia():
+@pytest.mark.parametrize(
+    "ini,fim,esperado",
+    [
+        ("14:00", "15:00", ["res-0001"]),
+        ("15:00", "16:00", []),  # adjacente depois: livre
+        ("13:00", "14:00", []),  # adjacente antes: livre
+    ],
+)
+def test_conflitos_e_adjacencia(ini, fim, esperado):
     r = repo()
-    _, i, f = validar("sala-garagem", d("03", "14:00"), d("03", "15:00"), SALAS)
-    assert [x.id for x in conflitos(r, "sala-garagem", i, f)] == ["res-0001"]
-    _, i, f = validar("sala-garagem", d("03", "15:00"), d("03", "16:00"), SALAS)  # adjacente: livre
-    assert conflitos(r, "sala-garagem", i, f) == []
-    _, i, f = validar("sala-garagem", d("03", "13:00"), d("03", "14:00"), SALAS)
-    assert conflitos(r, "sala-garagem", i, f) == []
+    i, f = intervalo("sala-garagem", ini, fim)
+
+    achados = conflitos(r, "sala-garagem", i, f)
+
+    assert [x.id for x in achados] == esperado
 
 
-def test_add_gera_ids_sequenciais_e_fica_visivel():
+def test_add_gera_ids_sequenciais():
     r = repo()
-    _, i, f = validar("sala-aquario", d("03", "09:00"), d("03", "10:00"), SALAS)
-    a = r.add("sala-aquario", i, f, "Doc")
-    assert a.id == "res-0003"
-    assert r.add("sala-porao", i, f, "Doc").id == "res-0004"
+    i, f = intervalo("sala-aquario", "09:00", "10:00")
+    primeira = r.add("sala-aquario", i, f, "Doc")
+
+    segunda = r.add("sala-porao", i, f, "Doc")
+
+    assert (primeira.id, segunda.id) == ("res-0003", "res-0004")
+
+
+def test_add_fica_visivel_em_conflitos():
+    r = repo()
+    i, f = intervalo("sala-aquario", "09:00", "10:00")
+
+    r.add("sala-aquario", i, f, "Doc")
+
     assert [x.id for x in conflitos(r, "sala-aquario", i, f)] == ["res-0003"]
 
 
 def test_repo_vazio_comeca_em_res_0001():
-    _, i, f = validar("sala-aquario", d("03", "09:00"), d("03", "10:00"), SALAS)
-    assert ReservaRepo([]).add("sala-aquario", i, f, "Doc").id == "res-0001"
+    i, f = intervalo("sala-aquario", "09:00", "10:00")
+
+    reserva = ReservaRepo([]).add("sala-aquario", i, f, "Doc")
+
+    assert reserva.id == "res-0001"
+
+
+def test_reservar_se_livre_reserva_quando_livre():
+    r = repo()
+    i, f = intervalo("sala-aquario", "09:00", "10:00")
+
+    reserva = r.reservar_se_livre("sala-aquario", i, f, "Doc")
+
+    assert reserva is not None and reserva.id == "res-0003"
 
 
 def test_reservar_se_livre_recusa_o_segundo():
     r = repo()
-    _, i, f = validar("sala-aquario", d("03", "09:00"), d("03", "10:00"), SALAS)
-    assert r.reservar_se_livre("sala-aquario", i, f, "Doc").id == "res-0003"
-    assert r.reservar_se_livre("sala-aquario", i, f, "Marty") is None
+    i, f = intervalo("sala-aquario", "09:00", "10:00")
+    r.reservar_se_livre("sala-aquario", i, f, "Doc")
+
+    segunda = r.reservar_se_livre("sala-aquario", i, f, "Marty")
+
+    assert segunda is None
     assert len(conflitos(r, "sala-aquario", i, f)) == 1
 
 
@@ -110,37 +149,52 @@ def test_reservar_se_livre_concorrente_gera_uma_reserva(monkeypatch):
 
     monkeypatch.setattr(dominio, "conflitos", conflitos_lento)
     r = repo()
-    _, i, f = validar("sala-aquario", d("03", "09:00"), d("03", "10:00"), SALAS)
+    i, f = intervalo("sala-aquario", "09:00", "10:00")
+
     with ThreadPoolExecutor(8) as pool:
         feitas = list(pool.map(lambda n: r.reservar_se_livre("sala-aquario", i, f, f"p{n}"), range(8)))
+
     assert sum(x is not None for x in feitas) == 1
 
 
 def test_alternativa_ocupada_no_intervalo_fica_de_fora():
     r = repo()
-    _, i, f = validar("sala-garagem", d("03", "14:00"), d("03", "15:00"), SALAS)
+    i, f = intervalo("sala-garagem", "14:00", "15:00")
     r.add("sala-fusca", i, f, "Doc")
-    assert [s.id for s in alternativas(r, SALAS, "sala-garagem", i, f)] == ["sala-mirante"]
+
+    alts = alternativas(r, SALAS, "sala-garagem", i, f)
+
+    assert [s.id for s in alts] == ["sala-mirante"]
 
 
 def test_alternativas_garagem_ordem_e_limite():
     r = repo()
-    _, i, f = validar("sala-garagem", d("03", "14:00"), d("03", "15:00"), SALAS)
-    assert [s.id for s in alternativas(r, SALAS, "sala-garagem", i, f)] == ["sala-fusca", "sala-mirante"]
+    i, f = intervalo("sala-garagem", "14:00", "15:00")
+
+    alts = alternativas(r, SALAS, "sala-garagem", i, f)
+
+    assert [s.id for s in alts] == ["sala-fusca", "sala-mirante"]
 
 
 def test_alternativas_limite_tres_e_desempate_por_id():
     r = repo()
-    _, i, f = validar("sala-aquario", d("03", "09:00"), d("03", "10:00"), SALAS)
-    ids = [s.id for s in alternativas(r, SALAS, "sala-aquario", i, f)]
-    assert ids == ["sala-porao", "sala-fusca", "sala-garagem"]  # cap 6, 12(fusca<garagem); mirante cortado
+    i, f = intervalo("sala-aquario", "09:00", "10:00")
+
+    alts = alternativas(r, SALAS, "sala-aquario", i, f)
+
+    assert [s.id for s in alts] == ["sala-porao", "sala-fusca", "sala-garagem"]  # cap 6, 12(fusca<garagem); mirante cortado
 
 
 def test_alternativas_vazia_para_mirante():
     r = repo()
-    _, i, f = validar("sala-mirante", d("03", "11:00"), d("03", "12:00"), SALAS)
-    assert alternativas(r, SALAS, "sala-mirante", i, f) == []
+    i, f = intervalo("sala-mirante", "11:00", "12:00")
+
+    alts = alternativas(r, SALAS, "sala-mirante", i, f)
+
+    assert alts == []
 
 
 def test_versao_politica():
-    assert versao_politica(DADOS / "politica-de-uso.md") == "2026-11-01"
+    versao = versao_politica(DADOS / "politica-de-uso.md")
+
+    assert versao == "2026-11-01"

@@ -10,6 +10,7 @@ H = lambda hora: f"2026-11-03T{hora}:00-03:00"  # noqa: E731
 
 def test_tools_list(client):
     _, b = rpc(client, "tools/list", {})
+
     tools = {t["name"]: t for t in b["result"]["tools"]}
     assert set(tools) == {"listar_salas", "consultar_disponibilidade", "reservar_sala"}
     assert all(t["inputSchema"]["type"] == "object" for t in tools.values())
@@ -18,6 +19,7 @@ def test_tools_list(client):
 
 def test_listar_salas_structured_igual_texto(client):
     _, b = call(client, "listar_salas", {})
+
     r = b["result"]
     assert len(r["structuredContent"]["salas"]) == 5
     assert json.loads(texto(r)) == r["structuredContent"]
@@ -25,25 +27,33 @@ def test_listar_salas_structured_igual_texto(client):
 
 def test_resources_list(client):
     _, b = rpc(client, "resources/list", {})
+
     assert b["result"]["resources"][0]["uri"] == "politica://uso"
 
 
-def test_sem_meta_obrigatorio(client):
-    for campo in ("protocolVersion", "clientCapabilities"):
-        status, b = call(client, "listar_salas", {}, omitir=campo)
-        assert status == 400 and b["error"]["code"] == -32602
+@pytest.mark.parametrize("campo", ["protocolVersion", "clientCapabilities"])
+def test_sem_meta_obrigatorio(client, campo):
+    status, b = call(client, "listar_salas", {}, omitir=campo)
+
+    assert status == 400 and b["error"]["code"] == -32602
 
 
 def test_tool_inexistente_recusada(client):
     _, b = call(client, "voar_delorean", {})
+
     assert b["result"]["isError"] is True and "Unknown tool: voar_delorean" in texto(b["result"])
 
 
-def test_resource_politica_e_inexistente(client):
+def test_resource_politica(client):
     _, b = rpc(client, "resources/read", {"uri": "politica://uso"}, "politica://uso")
+
     c = b["result"]["contents"][0]
     assert "versao: 2026-11-01" in c["text"] and c["mimeType"] == "text/markdown"
+
+
+def test_resource_inexistente(client):
     _, b = rpc(client, "resources/read", {"uri": "politica://nada"}, "politica://nada")
+
     assert b["error"]["code"] == -32602
 
 
@@ -59,21 +69,27 @@ def test_resource_politica_e_inexistente(client):
 @pytest.mark.parametrize("tool", ["consultar_disponibilidade", "reservar_sala"])
 def test_erros_de_execucao(client, tool, args, msg):
     args = {**args, "responsavel": "Doc"} if tool == "reservar_sala" else args
+
     _, b = call(client, tool, args)
+
     assert b["result"]["isError"] is True and msg in texto(b["result"])
 
 
 def test_consultar_conflito(client):
     _, b = call(client, "consultar_disponibilidade", {"sala": "sala-garagem", "inicio": H("14:00"), "fim": H("15:00")})
+
     s = b["result"]["structuredContent"]
     assert s["livre"] is False and s["conflitos"][0]["id"] == "res-0001"
 
 
 def test_reserva_livre(client):
-    _, b = call(client, "reservar_sala", {"sala": "sala-porao", "inicio": H("09:00"), "fim": H("10:00"), "responsavel": "Doc"})
+    pedido = {"sala": "sala-porao", "inicio": H("09:00"), "fim": H("10:00"), "responsavel": "Doc"}
+
+    _, b = call(client, "reservar_sala", pedido)
+
     r = b["result"]
     assert r["resultType"] == "complete" and not r.get("isError")
     s = r["structuredContent"]
     assert s["reservado"] is True and s["politica"] == "2026-11-01" and s["reserva"].startswith("res-")
-    _, b = call(client, "consultar_disponibilidade", {"sala": "sala-porao", "inicio": H("09:00"), "fim": H("10:00")})
-    assert b["result"]["structuredContent"]["livre"] is False
+    _, c = call(client, "consultar_disponibilidade", {"sala": "sala-porao", "inicio": H("09:00"), "fim": H("10:00")})
+    assert c["result"]["structuredContent"]["livre"] is False

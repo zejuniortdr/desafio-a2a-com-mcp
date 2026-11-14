@@ -11,6 +11,7 @@ from agente_salas.tasks import TaskNaoEncontrada, TaskState, TaskStore, TaskTerm
 TRACE = "4bf92f3577b34da6a3ce929d0e0e4736"
 TP = f"00-{TRACE}-00f067aa0ba902b7-01"
 PEDIDO = "reservar sala=sala-garagem inicio=2026-11-03T14:00:00-03:00 fim=2026-11-03T15:00:00-03:00 responsavel=Marty"
+PEDIDO_LIVRE = PEDIDO.replace("sala-garagem", "sala-porao")
 
 
 class FakeMcp:
@@ -56,8 +57,13 @@ def texto_status(t):
     return t.status_message["parts"][0]["text"]
 
 
+def chamadas_de_tool(mcp):
+    return [c for c in mcp.calls if c[0] == "tools/call"]
+
+
 async def test_sala_livre_conclui_com_artifact(ponte):
-    t = await ponte.iniciar(PEDIDO.replace("sala-garagem", "sala-porao"), TP)
+    t = await ponte.iniciar(PEDIDO_LIVRE, TP)
+
     assert t.state == TaskState.COMPLETED
     art = t.artifacts[0]
     assert art["name"] == "reserva"
@@ -66,6 +72,7 @@ async def test_sala_livre_conclui_com_artifact(ponte):
 
 async def test_descoberta_antes_da_primeira_chamada_e_trace(ponte, mcp):
     await ponte.iniciar(PEDIDO, TP)
+
     metodos = [c[0] for c in mcp.calls]
     assert metodos.index("tools/list") < metodos.index("tools/call")
     assert {c[1] for c in mcp.calls} == {TRACE}
@@ -74,26 +81,30 @@ async def test_descoberta_antes_da_primeira_chamada_e_trace(ponte, mcp):
 
 async def test_erro_da_tool_vira_failed_com_mensagem_exata(ponte):
     t = await ponte.iniciar(PEDIDO.replace("sala-garagem", "sala-x"), None)
+
     assert t.state == TaskState.FAILED and "Sala inexistente: sala-x" in texto_status(t)
 
 
 async def test_pausa_mensagem_exata_e_state_guardado(ponte):
     t = await ponte.iniciar(PEDIDO, TP)
+
     assert t.state == TaskState.INPUT_REQUIRED
     assert texto_status(t) == "alternativas: sala-fusca, sala-mirante"
     assert t.request_state.startswith("STATE-SEGREDO") and t.input_key == "k"
 
 
 async def test_continuacao_aceite_usa_id_novo_state_ecoado(ponte, mcp):
-    t = await ponte.iniciar(PEDIDO, TP)
-    estado = t.request_state
-    t = await ponte.continuar(t.id, "escolha=sala-mirante", TP)
+    pausada = await ponte.iniciar(PEDIDO, TP)
+    estado = pausada.request_state
+
+    t = await ponte.continuar(pausada.id, "escolha=sala-mirante", TP)
+
     assert t.state == TaskState.COMPLETED
     corpo = json.loads(t.artifacts[0]["parts"][0]["text"])
     assert (corpo["sala"], corpo["politica"]) == ("sala-mirante", "2026-11-01")
     assert t.artifacts[0]["artifactId"].startswith("art-")
     assert texto_status(t) == "Reserva res-0003 confirmada na sala-mirante."
-    retry = [c for c in mcp.calls if c[0] == "tools/call"][-1]
+    retry = chamadas_de_tool(mcp)[-1]
     assert retry[3] == {"k": {"action": "accept", "content": {"sala": "sala-mirante"}}} and retry[4] == estado
     assert retry[5] == "reservar_sala"
     assert t.request_state is None
@@ -102,49 +113,73 @@ async def test_continuacao_aceite_usa_id_novo_state_ecoado(ponte, mcp):
 async def test_continuacao_com_traceparent_novo_usa_o_trace_novo(ponte, mcp):
     t = await ponte.iniciar(PEDIDO, TP)
     outro = "a" * 32
+
     await ponte.continuar(t.id, "escolha=sala-fusca", f"00-{outro}-00f067aa0ba902b7-01")
+
     assert {c[1] for c in mcp.calls[-2:]} == {outro}
 
 
 async def test_historico_guarda_papeis_e_ids(ponte):
     t = await ponte.iniciar(PEDIDO, TP, "m1")
+
     usuario, agente = t.history
     assert (usuario["messageId"], usuario["role"]) == ("m1", "ROLE_USER") and "taskId" not in usuario
     assert (agente["role"], agente["taskId"], agente["contextId"]) == ("ROLE_AGENT", t.id, t.context_id)
 
 
 async def test_recusa_cancela(ponte, mcp):
-    t = await ponte.iniciar(PEDIDO, TP)
-    t = await ponte.continuar(t.id, "escolha=recusar", None)
+    pausada = await ponte.iniciar(PEDIDO, TP)
+
+    t = await ponte.continuar(pausada.id, "escolha=recusar", None)
+
     assert t.state == TaskState.CANCELED and texto_status(t) == "recusou"
-    retry = [c for c in mcp.calls if c[0] == "tools/call"][-1]
+    retry = chamadas_de_tool(mcp)[-1]
     assert retry[3] == {"k": {"action": "decline"}}
     assert retry[1] == TRACE  # sem header na continuacao: herda o trace da Task
 
 
 async def test_escolha_fora_do_enum_mantem_pausa_sem_chamar_mcp(ponte, mcp):
-    t = await ponte.iniciar(PEDIDO, TP)
+    pausada = await ponte.iniciar(PEDIDO, TP)
     antes = len(mcp.calls)
-    t = await ponte.continuar(t.id, "escolha=sala-aquario", TP)
+
+    t = await ponte.continuar(pausada.id, "escolha=sala-aquario", TP)
+
     assert t.state == TaskState.INPUT_REQUIRED and texto_status(t) == "alternativas: sala-fusca, sala-mirante"
     assert len(mcp.calls) == antes
-    t = await ponte.continuar(t.id, "escolha=sala-fusca", TP)  # ainda da para concluir
+
+
+async def test_escolha_valida_depois_de_uma_fora_do_enum_conclui(ponte):
+    pausada = await ponte.iniciar(PEDIDO, TP)
+    await ponte.continuar(pausada.id, "escolha=sala-aquario", TP)
+
+    t = await ponte.continuar(pausada.id, "escolha=sala-fusca", TP)
+
     assert t.state == TaskState.COMPLETED
+
+
+async def test_duas_pausas_recebem_states_distintos(ponte):
+    a = await ponte.iniciar(PEDIDO.replace("Marty", "Lorraine"), None)
+
+    b = await ponte.iniciar(PEDIDO.replace("Marty", "George"), None)
+
+    assert a.request_state != b.request_state
 
 
 async def test_duas_tasks_pausadas_nao_trocam_state(ponte, mcp):
     a = await ponte.iniciar(PEDIDO.replace("Marty", "Lorraine"), None)
     b = await ponte.iniciar(PEDIDO.replace("Marty", "George"), None)
-    assert a.request_state != b.request_state
+
     await ponte.continuar(a.id, "escolha=sala-fusca", None)
     await ponte.continuar(b.id, "escolha=sala-mirante", None)
-    retry_a, retry_b = [c for c in mcp.calls if c[0] == "tools/call"][-2:]
+
+    retry_a, retry_b = chamadas_de_tool(mcp)[-2:]
     assert "Lorraine" in retry_a[4] and "George" in retry_b[4]
     assert retry_a[2]["responsavel"] == "Lorraine" and retry_b[2]["responsavel"] == "George"
 
 
 async def test_continuar_task_terminal_e_recusado(ponte):
-    t = await ponte.iniciar(PEDIDO.replace("sala-garagem", "sala-porao"), None)
+    t = await ponte.iniciar(PEDIDO_LIVRE, None)
+
     with pytest.raises(TaskTerminal):
         await ponte.continuar(t.id, "escolha=sala-fusca", None)
 
@@ -163,14 +198,17 @@ async def test_iniciar_sem_pedido_de_reserva_e_invalido(ponte, texto):
 @pytest.mark.parametrize("texto", ["bom dia", PEDIDO])
 async def test_continuar_sem_escolha_e_invalido_e_mantem_a_pausa(ponte, texto):
     p = await ponte.iniciar(PEDIDO, None)
+
     with pytest.raises(PedidoInvalido):
         await ponte.continuar(p.id, texto, None)
+
     assert p.state == TaskState.INPUT_REQUIRED
 
 
 @pytest.mark.parametrize("tp", [None, "lixo", "00-" + "0" * 32 + "-00f067aa0ba902b7-01"])
-async def test_traceparent_ausente_ou_invalido_gera_trace_novo(ponte, mcp, tp):
-    t = await ponte.iniciar(PEDIDO.replace("sala-garagem", "sala-porao"), tp)
+async def test_traceparent_ausente_ou_invalido_gera_trace_novo(ponte, tp):
+    t = await ponte.iniciar(PEDIDO_LIVRE, tp)
+
     assert t.state == TaskState.COMPLETED
     assert len(t.trace_id) == 32 and t.trace_id != "0" * 32
 
@@ -179,9 +217,11 @@ async def test_erro_do_mcp_vira_failed(ponte, mcp):
     async def boom(*a, **k):
         raise McpError(-32602, "requestState expirado")
 
-    t = await ponte.iniciar(PEDIDO, None)
+    pausada = await ponte.iniciar(PEDIDO, None)
     mcp.call_tool = boom
-    t = await ponte.continuar(t.id, "escolha=sala-fusca", None)
+
+    t = await ponte.continuar(pausada.id, "escolha=sala-fusca", None)
+
     assert t.state == TaskState.FAILED and "requestState expirado" in texto_status(t)
 
 
@@ -200,9 +240,11 @@ async def test_falha_na_continuacao_nunca_deixa_a_task_em_working(ponte, mcp, me
     async def boom(*a, **k):
         raise erro
 
-    t = await ponte.iniciar(PEDIDO, None)
+    pausada = await ponte.iniciar(PEDIDO, None)
     setattr(mcp, metodo, boom)
-    t = await ponte.continuar(t.id, "escolha=sala-fusca", None)
+
+    t = await ponte.continuar(pausada.id, "escolha=sala-fusca", None)
+
     assert t.state == TaskState.FAILED and trecho in texto_status(t)
     assert t.request_state is None
 
@@ -212,7 +254,9 @@ async def test_resultado_sem_campos_da_reserva_vira_failed(ponte, mcp):
         return McpResult("complete", structured={"reservado": True})
 
     mcp.call_tool = incompleto
+
     t = await ponte.iniciar(PEDIDO, None)
+
     assert t.state == TaskState.FAILED and t.artifacts == []
 
 
@@ -221,7 +265,9 @@ async def test_politica_vazia_vira_failed(ponte, mcp):
         return ""
 
     mcp.read_resource = vazia
+
     t = await ponte.iniciar(PEDIDO, None)
+
     assert t.state == TaskState.FAILED
 
 
@@ -230,6 +276,8 @@ async def test_tool_ausente_na_descoberta_vira_failed_sem_chamar(ponte, mcp):
         return [{"name": "listar_salas"}]
 
     mcp.list_tools = outras
+
     t = await ponte.iniciar(PEDIDO, None)
+
     assert t.state == TaskState.FAILED and "reservar_sala nao encontrada" in texto_status(t)
     assert mcp.calls == []
