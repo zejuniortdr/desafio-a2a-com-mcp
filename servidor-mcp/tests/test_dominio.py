@@ -31,6 +31,9 @@ def intervalo(sala: str, ini: str, fim: str):
         ("sala-aquario", d("03", "10:00"), d("03", "10:00"), "Intervalo invalido: fim deve ser posterior a inicio"),
         ("sala-aquario", d("03", "07:00"), d("03", "08:00"), "Fora da janela de uso: a politica permite reservas entre 08:00 e 20:00"),
         ("sala-aquario", d("03", "19:30"), d("03", "20:30"), "Fora da janela de uso: a politica permite reservas entre 08:00 e 20:00"),
+        # regressao: segundos/microssegundos eram ignorados e 20:00:59 passava
+        ("sala-aquario", d("03", "19:00"), "2026-11-03T20:00:59-03:00", "Fora da janela de uso: a politica permite reservas entre 08:00 e 20:00"),
+        ("sala-aquario", d("03", "19:00"), "2026-11-03T20:00:00.5-03:00", "Fora da janela de uso: a politica permite reservas entre 08:00 e 20:00"),
         ("sala-aquario", d("03", "09:00"), d("03", "12:00"), "Duracao acima do limite: a politica permite no maximo 2 horas"),
         # precedencia: sala > intervalo > janela > duracao
         ("sala-x", d("03", "12:00"), d("03", "06:00"), "Sala inexistente: sala-x"),

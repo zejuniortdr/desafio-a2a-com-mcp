@@ -36,7 +36,9 @@ def _alternativas(enum: list[str]) -> str:
 
 # Tudo que pode sair de uma conversa com o servidor MCP: erro de protocolo, de rede, ou resposta
 # fora do formato esperado. Qualquer um deles leva a Task a FAILED; nenhum pode deixa-la em WORKING.
-_FALHAS_MCP = (McpError, httpx.HTTPError, KeyError, IndexError, TypeError)
+# AttributeError: item de content que nao e dict. RuntimeError: StopIteration (inputRequests vazio)
+# convertido pela coroutine. ValueError: primeira linha da politica sem ':'.
+_FALHAS_MCP = (McpError, httpx.HTTPError, KeyError, IndexError, TypeError, AttributeError, RuntimeError, ValueError)
 
 
 def _descrever(err: Exception) -> str:

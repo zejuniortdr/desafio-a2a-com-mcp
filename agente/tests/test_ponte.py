@@ -232,6 +232,9 @@ async def test_erro_do_mcp_vira_failed(ponte, mcp):
         (KeyError("result"), "fora do formato esperado"),
         (IndexError("contents"), "fora do formato esperado"),
         (TypeError("nao e dict"), "fora do formato esperado"),
+        (AttributeError("'str' object has no attribute 'get'"), "fora do formato esperado"),
+        (RuntimeError("coroutine raised StopIteration"), "fora do formato esperado"),
+        (ValueError("versao sem ':'"), "fora do formato esperado"),
     ],
 )
 @pytest.mark.parametrize("metodo", ["read_resource", "call_tool"])

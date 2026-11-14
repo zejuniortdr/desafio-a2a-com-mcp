@@ -22,7 +22,8 @@ async def _log_request(ctx: Any, call_next: Any) -> Any:
     meta = (ctx.params or {}).get("_meta") or {}
     # traceparent vem do cliente: so [alnum-] e no maximo 55 caracteres (tamanho do formato W3C) vao ao log.
     traceparent = "".join(c for c in str(meta.get("traceparent", "-"))[:55] if c.isalnum() or c == "-")
-    log.info("method=%s id=%s traceparent=%s", ctx.method, ctx.request_id, traceparent)
+    # id e method tambem vem do cliente: repr escapa \n e o corte em 64 limita o tamanho.
+    log.info("method=%r id=%r traceparent=%s", str(ctx.method)[:64], str(ctx.request_id)[:64], traceparent)
     return await call_next(ctx)
 
 

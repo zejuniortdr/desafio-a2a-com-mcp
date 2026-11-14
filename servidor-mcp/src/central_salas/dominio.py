@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import threading
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, time, timedelta, timezone
 from pathlib import Path
 
 from central_salas.erros import ErroDeNegocio
@@ -73,8 +73,7 @@ def validar(sala_id: str, inicio: str, fim: str, salas: list[Sala]) -> tuple[Sal
         raise ErroDeNegocio(ERRO_INTERVALO)
     for t in (i, f):
         local = t.astimezone(SP)
-        minutos = local.hour * 60 + local.minute
-        if not ABERTURA * 60 <= minutos <= FECHAMENTO * 60 or local.date() != i.astimezone(SP).date():
+        if not time(ABERTURA) <= local.time() <= time(FECHAMENTO) or local.date() != i.astimezone(SP).date():
             raise ErroDeNegocio(ERRO_JANELA)
     if f - i > DURACAO_MAXIMA:
         raise ErroDeNegocio(ERRO_DURACAO)

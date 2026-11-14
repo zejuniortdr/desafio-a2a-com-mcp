@@ -93,3 +93,16 @@ def test_reserva_livre(client):
     assert s["reservado"] is True and s["politica"] == "2026-11-01" and s["reserva"].startswith("res-")
     _, c = call(client, "consultar_disponibilidade", {"sala": "sala-porao", "inicio": H("09:00"), "fim": H("10:00")})
     assert c["result"]["structuredContent"]["livre"] is False
+
+
+def test_log_nao_aceita_quebra_de_linha_nem_id_gigante(client, caplog):
+    # Regressao: id e method do cliente iam crus ao log; um "\n" no id forjava uma linha de log nova.
+    forjado = "1\n2026-11-14 10:00:00,000 method=tools/call id=9 traceparent=00-forjado"
+    caplog.set_level("INFO", logger="central_salas")
+
+    rpc(client, "tools/list", {}, id_=forjado)
+    rpc(client, "tools/list", {}, id_="x" * 10_000)
+
+    linhas = [r.getMessage() for r in caplog.records if r.getMessage().startswith("method=")]
+    assert len(linhas) == 2
+    assert all("\n" not in linha and len(linha) < 300 for linha in linhas)
