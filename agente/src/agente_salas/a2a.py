@@ -29,8 +29,8 @@ def _erro(id_: Any, code: int, message: str) -> JSONResponse:
     return JSONResponse({"jsonrpc": "2.0", "id": id_, "error": {"code": code, "message": message}})
 
 
-def _texto_da_mensagem(msg: Any) -> str:
-    if not isinstance(msg, dict) or not isinstance(msg.get("parts"), list):
+def _texto_da_mensagem(msg: dict) -> str:
+    if not isinstance(msg.get("parts"), list):
         raise PedidoInvalido("params.message.parts ausente")
     partes = [p["text"] for p in msg["parts"] if isinstance(p, dict) and isinstance(p.get("text"), str)]
     if not partes:
@@ -44,6 +44,8 @@ def criar_app(bridge: BridgeService, store: TaskStore, public_url: str) -> Starl
 
     async def send_message(params: dict, traceparent: str | None) -> dict:
         msg = params.get("message")
+        if not isinstance(msg, dict):
+            raise PedidoInvalido("params.message ausente")
         texto = _texto_da_mensagem(msg)
         message_id = msg.get("messageId") if isinstance(msg.get("messageId"), str) else None
         task_id = msg.get("taskId")
@@ -65,10 +67,15 @@ def criar_app(bridge: BridgeService, store: TaskStore, public_url: str) -> Starl
             corpo = await request.json()
         except ValueError:
             return _erro(None, PARSE_ERROR, "JSON invalido")
-        if not isinstance(corpo, dict) or corpo.get("jsonrpc") != "2.0" or not isinstance(corpo.get("method"), str):
+        if not isinstance(corpo, dict):
             return _erro(None, INVALID_REQUEST, "Requisicao JSON-RPC invalida")
-        id_, metodo = corpo.get("id"), corpo["method"]
-        params = corpo.get("params") if isinstance(corpo.get("params"), dict) else {}
+        id_ = corpo.get("id")
+        metodo = corpo.get("method")
+        if corpo.get("jsonrpc") != "2.0" or not isinstance(metodo, str):
+            return _erro(id_, INVALID_REQUEST, "Requisicao JSON-RPC invalida")
+        params = corpo.get("params", {})
+        if not isinstance(params, dict):
+            return _erro(id_, INVALID_PARAMS, "params deve ser um objeto")
         try:
             if metodo == "SendMessage":
                 resultado = await send_message(params, request.headers.get("traceparent"))

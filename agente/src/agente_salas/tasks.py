@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import threading
 import uuid
 from dataclasses import dataclass, field
 from enum import Enum
@@ -73,19 +72,18 @@ class Task:
 
 
 class TaskStore:
+    """Tasks em memoria. Sem lock: todo acesso acontece no event loop, numa thread so."""
+
     def __init__(self) -> None:
         self._tasks: dict[str, Task] = {}
-        self._lock = threading.Lock()
 
     def create(self, trace_id: str) -> Task:
         t = Task(id=novo_id("task"), context_id=novo_id("ctx"), trace_id=trace_id)
-        with self._lock:
-            self._tasks[t.id] = t
+        self._tasks[t.id] = t
         return t
 
     def get(self, task_id: str) -> Task:
-        with self._lock:
-            try:
-                return self._tasks[task_id]
-            except KeyError:
-                raise TaskNaoEncontrada(task_id) from None
+        try:
+            return self._tasks[task_id]
+        except KeyError:
+            raise TaskNaoEncontrada(task_id) from None

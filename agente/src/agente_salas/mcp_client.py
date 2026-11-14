@@ -3,13 +3,13 @@ from __future__ import annotations
 import secrets
 import uuid
 from dataclasses import dataclass, field
-from typing import Any, Protocol
+from typing import Any, Literal, Protocol
 
 import httpx
 
 PROTOCOLO = "2026-07-28"
 CLIENT_INFO = {"name": "agente-central-de-salas", "version": "1.0.0"}
-CAPABILITIES = {"elicitation": {"form": {}}}
+CAPABILITIES: dict[str, dict[str, dict[str, Any]]] = {"elicitation": {"form": {}}}
 
 
 class McpError(Exception):
@@ -20,7 +20,7 @@ class McpError(Exception):
 
 @dataclass
 class McpResult:
-    kind: str  # "complete" | "input_required"
+    kind: Literal["complete", "input_required"]
     is_error: bool = False
     text: str = ""
     structured: dict | None = None
@@ -77,10 +77,13 @@ class McpClient:
             dados = resp.json()
         except ValueError as err:
             raise McpError(-32700, f"resposta MCP nao e JSON (HTTP {resp.status_code})") from err
-        if "error" in dados:
-            e = dados["error"]
-            raise McpError(e.get("code", -32603), e.get("message", ""), e.get("data"))
-        return dados["result"]
+        erro = dados.get("error") if isinstance(dados, dict) else None
+        if isinstance(erro, dict):
+            raise McpError(erro.get("code", -32603), erro.get("message", ""), erro.get("data"))
+        resultado = dados.get("result") if isinstance(dados, dict) else None
+        if not isinstance(resultado, dict):  # ex.: 502 de um proxy com corpo JSON que nao e JSON-RPC
+            raise McpError(-32603, f"resposta MCP fora do formato JSON-RPC (HTTP {resp.status_code})")
+        return resultado
 
     async def list_tools(self, trace_id: str) -> list[dict]:
         return (await self._rpc("tools/list", {}, trace_id))["tools"]

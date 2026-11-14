@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime
 
+from mcp.server.mcpserver import Context, MCPServer
 from mcp.shared.exceptions import MCPError
 from mcp_types import (
     INVALID_PARAMS,
@@ -11,10 +11,10 @@ from mcp_types import (
     ElicitationCapability,
     ElicitRequest,
     ElicitRequestFormParams,
+    ElicitResult,
     FormElicitationCapability,
     InputRequiredResult,
 )
-from mcp.server.mcpserver import Context, MCPServer
 from pydantic import BaseModel
 
 from central_salas.dominio import (
@@ -71,7 +71,9 @@ class ReservaOut(BaseModel):
 
 
 def _existente(r: Reserva) -> ReservaExistente:
-    return ReservaExistente(id=r.id, sala=r.sala, inicio=r.inicio.isoformat(), fim=r.fim.isoformat(), responsavel=r.responsavel)
+    return ReservaExistente(
+        id=r.id, sala=r.sala, inicio=r.inicio.isoformat(), fim=r.fim.isoformat(), responsavel=r.responsavel
+    )
 
 
 def _exigir_elicitation_form(ctx: Context) -> None:
@@ -88,9 +90,17 @@ def _exigir_elicitation_form(ctx: Context) -> None:
 
 
 def registrar_tools(srv: MCPServer, salas: list[Sala], repo: ReservaRepo, politica: str) -> None:
-    def concluir(sala: Sala, i: datetime, f: datetime, responsavel: str) -> ReservaOut:
-        r = repo.add(sala.id, i, f, responsavel)
-        return ReservaOut(reserva=r.id, reservado=True, sala=sala.id, inicio=i.isoformat(), fim=f.isoformat(), responsavel=responsavel, politica=politica, motivo=None)
+    def confirmada(r: Reserva) -> ReservaOut:
+        return ReservaOut(
+            reserva=r.id,
+            reservado=True,
+            sala=r.sala,
+            inicio=r.inicio.isoformat(),
+            fim=r.fim.isoformat(),
+            responsavel=r.responsavel,
+            politica=politica,
+            motivo=None,
+        )
 
     @srv.tool()
     def listar_salas() -> ListaDeSalas:
@@ -102,32 +112,38 @@ def registrar_tools(srv: MCPServer, salas: list[Sala], repo: ReservaRepo, politi
         """Diz se uma sala esta livre no intervalo, e quais reservas conflitam."""
         s, i, f = validar(sala, inicio, fim, salas)
         achados = conflitos(repo, s.id, i, f)
-        return Disponibilidade(sala=s.id, inicio=inicio, fim=fim, livre=not achados, conflitos=[_existente(r) for r in achados])
+        return Disponibilidade(
+            sala=s.id, inicio=inicio, fim=fim, livre=not achados, conflitos=[_existente(r) for r in achados]
+        )
 
     @srv.tool()
-    def reservar_sala(sala: str, inicio: str, fim: str, responsavel: str, ctx: Context) -> ReservaOut | InputRequiredResult:
+    def reservar_sala(
+        sala: str, inicio: str, fim: str, responsavel: str, ctx: Context
+    ) -> ReservaOut | InputRequiredResult:
         """Reserva uma sala. Em conflito, pede ao cliente a escolha de uma sala alternativa."""
         if ctx.request_state is not None:
             return _retomar(ctx)
         s, i, f = validar(sala, inicio, fim, salas)
-        if not conflitos(repo, s.id, i, f):
-            return concluir(s, i, f, responsavel)
+        reserva = repo.reservar_se_livre(s.id, i, f, responsavel)  # checagem e escrita atomicas
+        if reserva is not None:
+            return confirmada(reserva)
         alts = alternativas(repo, salas, s.id, i, f)
         if not alts:
             raise ErroDeNegocio(ERRO_SEM_ALTERNATIVA)
         _exigir_elicitation_form(ctx)
+        oferecidas = [a.id for a in alts]
+        campo = {"type": "string", "enum": oferecidas, "title": "Sala", "description": "Sala alternativa escolhida"}
         pedido = ElicitRequest(
             params=ElicitRequestFormParams(
                 message="A sala pedida esta ocupada nesse intervalo. Escolha uma alternativa.",
-                requested_schema={
-                    "type": "object",
-                    "properties": {"sala": {"type": "string", "enum": [a.id for a in alts], "title": "Sala", "description": "Sala alternativa escolhida"}},
-                    "required": ["sala"],
-                },
+                requested_schema={"type": "object", "properties": {"sala": campo}, "required": ["sala"]},
             )
         )
         # O pedido original viaja selado (AES-GCM, pelo SDK): no retry os argumentos do cliente nao valem.
-        selado = json.dumps({"sala": sala, "inicio": inicio, "fim": fim, "responsavel": responsavel})
+        # As alternativas oferecidas vao junto: o retry so aceita o que foi de fato oferecido.
+        selado = json.dumps(
+            {"sala": sala, "inicio": inicio, "fim": fim, "responsavel": responsavel, "alternativas": oferecidas}
+        )
         return InputRequiredResult(input_requests={CHAVE_ELICITATION: pedido}, request_state=selado)
 
     def _retomar(ctx: Context) -> ReservaOut:
@@ -135,15 +151,28 @@ def registrar_tools(srv: MCPServer, salas: list[Sala], repo: ReservaRepo, politi
             orig = json.loads(ctx.request_state or "")
             s, i, f = validar(orig["sala"], orig["inicio"], orig["fim"], salas)
             responsavel = orig["responsavel"]
+            oferecidas = list(orig["alternativas"])
         except (ValueError, KeyError, TypeError) as err:
             raise MCPError(code=INVALID_PARAMS, message="requestState invalido") from err
         resposta = (ctx.input_responses or {}).get(CHAVE_ELICITATION)
-        if resposta is None:
+        if not isinstance(resposta, ElicitResult):
             raise MCPError(code=INVALID_PARAMS, message=f"inputResponses sem a chave {CHAVE_ELICITATION!r}")
         if resposta.action != "accept":
-            return ReservaOut(reserva=None, reservado=False, sala=s.id, inicio=orig["inicio"], fim=orig["fim"], responsavel=responsavel, politica=politica, motivo=MOTIVO_RECUSA)
+            return ReservaOut(
+                reserva=None,
+                reservado=False,
+                sala=s.id,
+                inicio=orig["inicio"],
+                fim=orig["fim"],
+                responsavel=responsavel,
+                politica=politica,
+                motivo=MOTIVO_RECUSA,
+            )
         escolhida = (resposta.content or {}).get("sala")
-        validas = {a.id: a for a in alternativas(repo, salas, s.id, i, f)}
-        if escolhida not in validas:
+        # So vale o que foi oferecido (selado no state) e continua livre; a reserva e atomica.
+        if not isinstance(escolhida, str) or escolhida not in oferecidas:
             raise ErroDeNegocio(ERRO_SEM_ALTERNATIVA)
-        return concluir(validas[escolhida], i, f, responsavel)
+        reserva = repo.reservar_se_livre(escolhida, i, f, responsavel)
+        if reserva is None:
+            raise ErroDeNegocio(ERRO_SEM_ALTERNATIVA)
+        return confirmada(reserva)

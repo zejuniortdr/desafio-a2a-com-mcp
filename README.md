@@ -83,10 +83,11 @@ serializa o estado da pausa.
   body asks its question again
   ```
 
-  A forma manual sela `sala`, `inicio`, `fim` e `responsavel` e reconstrói o pedido só a partir do state (`_retomar` em `tools.py`).
+  A forma manual sela `sala`, `inicio`, `fim`, `responsavel` e as alternativas oferecidas (o retry só aceita uma delas) e reconstrói o pedido só a partir do state (`_retomar` em `tools.py`).
   O SDK não deixa misturar as duas formas: uma tool com parâmetro `Resolve(...)` não pode devolver `InputRequiredResult` (`tools/base.py`).
-- **Estado das Tasks:** no agente, dicionário em memória protegido por `Lock` (`TaskStore`), um registro por Task com o próprio `requestState`.
-  As reservas ficam em memória no servidor MCP. Ambos somem no restart, o que o enunciado permite; o `requestState` é a exceção, porque é autocontido.
+- **Estado das Tasks:** no agente, dicionário em memória (`TaskStore`, sem lock: todo acesso acontece no event loop), um registro por Task
+  com o próprio `requestState`. As reservas ficam em memória no servidor MCP; como o SDK roda tools síncronas em thread pool, a checagem de
+  conflito e a escrita acontecem sob o mesmo lock (`ReservaRepo.reservar_se_livre`). Ambos somem no restart, o que o enunciado permite; o `requestState` é a exceção, porque é autocontido.
 - **A2A à mão:** JSON-RPC 2.0 mínimo (`SendMessage`, `GetTask`) sobre Starlette. `SendMessage` é síncrono e devolve a Task já pausada ou terminal
   (`SUBMITTED` e `WORKING` são transições reais, validadas por máquina de estados; estado terminal é definitivo).
 - **Erros A2A:** Task terminal `-32004` (`UnsupportedOperationError`); Task inexistente `-32001` (`TaskNotFoundError`); pedido fora do formato,

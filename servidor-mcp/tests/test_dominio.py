@@ -48,6 +48,7 @@ def test_validar_erros(sala, ini, fim, msg):
         (d("03", "08:00"), d("03", "10:00")),  # borda inicial e duracao exata de 2h
         (d("03", "18:00"), d("03", "20:00")),  # borda final
         ("2026-11-03T11:00:00+00:00", "2026-11-03T12:00:00+00:00"),  # UTC 11h == 08h SP
+        ("2026-11-03T11:00:00Z", "2026-11-03T12:00:00Z"),  # sufixo Z: igual no 3.10 e no 3.11+
     ],
 )
 def test_validar_bordas_ok(ini, fim):
@@ -77,6 +78,49 @@ def test_add_gera_ids_sequenciais_e_fica_visivel():
     assert a.id == "res-0003"
     assert r.add("sala-porao", i, f, "Doc").id == "res-0004"
     assert [x.id for x in conflitos(r, "sala-aquario", i, f)] == ["res-0003"]
+
+
+def test_repo_vazio_comeca_em_res_0001():
+    _, i, f = validar("sala-aquario", d("03", "09:00"), d("03", "10:00"), SALAS)
+    assert ReservaRepo([]).add("sala-aquario", i, f, "Doc").id == "res-0001"
+
+
+def test_reservar_se_livre_recusa_o_segundo():
+    r = repo()
+    _, i, f = validar("sala-aquario", d("03", "09:00"), d("03", "10:00"), SALAS)
+    assert r.reservar_se_livre("sala-aquario", i, f, "Doc").id == "res-0003"
+    assert r.reservar_se_livre("sala-aquario", i, f, "Marty") is None
+    assert len(conflitos(r, "sala-aquario", i, f)) == 1
+
+
+def test_reservar_se_livre_concorrente_gera_uma_reserva(monkeypatch):
+    # Regressao do double-booking: as tools sincronas rodam em thread pool. O sleep alarga a janela
+    # entre a checagem e a escrita; sem o lock em volta das duas, varias threads reservam.
+    import time
+    from concurrent.futures import ThreadPoolExecutor
+
+    from central_salas import dominio
+
+    original = dominio.conflitos
+
+    def conflitos_lento(*a):
+        achados = original(*a)
+        time.sleep(0.01)
+        return achados
+
+    monkeypatch.setattr(dominio, "conflitos", conflitos_lento)
+    r = repo()
+    _, i, f = validar("sala-aquario", d("03", "09:00"), d("03", "10:00"), SALAS)
+    with ThreadPoolExecutor(8) as pool:
+        feitas = list(pool.map(lambda n: r.reservar_se_livre("sala-aquario", i, f, f"p{n}"), range(8)))
+    assert sum(x is not None for x in feitas) == 1
+
+
+def test_alternativa_ocupada_no_intervalo_fica_de_fora():
+    r = repo()
+    _, i, f = validar("sala-garagem", d("03", "14:00"), d("03", "15:00"), SALAS)
+    r.add("sala-fusca", i, f, "Doc")
+    assert [s.id for s in alternativas(r, SALAS, "sala-garagem", i, f)] == ["sala-mirante"]
 
 
 def test_alternativas_garagem_ordem_e_limite():

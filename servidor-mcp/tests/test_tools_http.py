@@ -1,12 +1,11 @@
 import json
 
+import pytest
+
 from conftest import call, rpc
+from conftest import texto_de as texto
 
 H = lambda hora: f"2026-11-03T{hora}:00-03:00"  # noqa: E731
-
-
-def texto(res):
-    return " ".join(p["text"] for p in res["content"])
 
 
 def test_tools_list(client):
@@ -37,7 +36,7 @@ def test_sem_meta_obrigatorio(client):
 
 def test_tool_inexistente_recusada(client):
     _, b = call(client, "voar_delorean", {})
-    assert b.get("error", {}).get("code") == -32602 or b["result"]["isError"] is True
+    assert b["result"]["isError"] is True and "Unknown tool: voar_delorean" in texto(b["result"])
 
 
 def test_resource_politica_e_inexistente(client):
@@ -46,9 +45,6 @@ def test_resource_politica_e_inexistente(client):
     assert "versao: 2026-11-01" in c["text"] and c["mimeType"] == "text/markdown"
     _, b = rpc(client, "resources/read", {"uri": "politica://nada"}, "politica://nada")
     assert b["error"]["code"] == -32602
-
-
-import pytest  # noqa: E402
 
 
 @pytest.mark.parametrize(

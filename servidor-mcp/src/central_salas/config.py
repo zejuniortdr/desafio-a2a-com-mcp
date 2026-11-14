@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 MIN_SECRET_BYTES = 32
@@ -14,7 +14,7 @@ class ConfigInvalida(Exception):
 @dataclass(frozen=True)
 class Config:
     port: int
-    secret: str
+    secret: str = field(repr=False)  # nunca aparece em log/traceback via repr
     dados_dir: Path
 
 
@@ -31,8 +31,12 @@ def carregar_config(env: dict[str, str] | None = None) -> Config:
             'Gere com: python3 -c "import secrets; print(secrets.token_hex(32))"'
         )
     padrao = Path(__file__).resolve().parents[3] / "dados"
+    try:
+        port = int(env.get("MCP_PORT", "7301"))
+    except ValueError as err:
+        raise ConfigInvalida("MCP_PORT deve ser um numero inteiro") from err
     return Config(
-        port=int(env.get("MCP_PORT", "7301")),
+        port=port,
         secret=secret,
         dados_dir=Path(env.get("DADOS_DIR", str(padrao))),
     )

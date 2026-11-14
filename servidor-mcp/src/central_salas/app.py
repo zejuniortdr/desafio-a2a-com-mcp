@@ -20,7 +20,9 @@ log = logging.getLogger("central_salas")
 
 async def _log_request(ctx: Any, call_next: Any) -> Any:
     meta = (ctx.params or {}).get("_meta") or {}
-    log.info("method=%s id=%s traceparent=%s", ctx.method, ctx.request_id, meta.get("traceparent", "-"))
+    # traceparent vem do cliente: so [alnum-] e no maximo 55 caracteres (tamanho do formato W3C) vao ao log.
+    traceparent = "".join(c for c in str(meta.get("traceparent", "-"))[:55] if c.isalnum() or c == "-")
+    log.info("method=%s id=%s traceparent=%s", ctx.method, ctx.request_id, traceparent)
     return await call_next(ctx)
 
 

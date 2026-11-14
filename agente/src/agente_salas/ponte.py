@@ -34,10 +34,17 @@ def _alternativas(enum: list[str]) -> str:
     return "alternativas: " + ", ".join(enum)
 
 
+# Tudo que pode sair de uma conversa com o servidor MCP: erro de protocolo, de rede, ou resposta
+# fora do formato esperado. Qualquer um deles leva a Task a FAILED; nenhum pode deixa-la em WORKING.
+_FALHAS_MCP = (McpError, httpx.HTTPError, KeyError, IndexError, TypeError)
+
+
 def _descrever(err: Exception) -> str:
     if isinstance(err, McpError):
         return f"Erro do servidor MCP ({err.code}): {err.message}"
-    return f"Servidor MCP indisponivel: {err}"
+    if isinstance(err, httpx.HTTPError):
+        return f"Servidor MCP indisponivel: {err}"
+    return f"Resposta do servidor MCP fora do formato esperado: {err!r}"
 
 
 class BridgeService:
@@ -59,9 +66,9 @@ class BridgeService:
                 return self._falhar(task, f"Ferramenta {TOOL_RESERVA} nao encontrada no servidor MCP")
             politica = _versao(await self._mcp.read_resource(URI_POLITICA, task.trace_id))
             resultado = await self._mcp.call_tool(TOOL_RESERVA, asdict(pedido), task.trace_id)
-        except (McpError, httpx.HTTPError) as err:
+            return self._aplicar(task, resultado, politica)
+        except _FALHAS_MCP as err:
             return self._falhar(task, _descrever(err))
-        return self._aplicar(task, resultado, politica)
 
     async def continuar(self, task_id: str, texto: str, traceparent: str | None, message_id: str | None = None) -> Task:
         task = self._store.get(task_id)
@@ -86,10 +93,10 @@ class BridgeService:
             # A PONTE (volta): o requestState guardado nesta Task e ecoado sem abrir, com id JSON-RPC novo
             # (o McpClient gera um id por request) e inputResponses sob a mesma chave que o servidor atribuiu.
             resultado = await self._mcp.call_tool(TOOL_RESERVA, asdict(pedido), trace_id, {chave: resposta}, estado)
-        except (McpError, httpx.HTTPError) as err:
+            task.limpar_pausa()
+            return self._aplicar(task, resultado, politica)
+        except _FALHAS_MCP as err:
             return self._falhar(task, _descrever(err))
-        task.limpar_pausa()
-        return self._aplicar(task, resultado, politica)
 
     def _aplicar(self, task: Task, r: McpResult, politica: str) -> Task:
         if r.kind == "input_required":

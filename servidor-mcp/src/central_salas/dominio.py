@@ -39,8 +39,9 @@ class Reserva:
 
 def _dt(texto: str) -> datetime:
     try:
-        valor = datetime.fromisoformat(texto)
-    except (ValueError, TypeError) as err:
+        # fromisoformat so aceita o sufixo Z a partir do Python 3.11; o piso do projeto e 3.10.
+        valor = datetime.fromisoformat(texto[:-1] + "+00:00" if texto.endswith("Z") else texto)
+    except (ValueError, TypeError, AttributeError) as err:
         raise ErroDeNegocio(ERRO_FORMATO) from err
     if valor.tzinfo is None:
         raise ErroDeNegocio(ERRO_FORMATO)
@@ -85,7 +86,7 @@ class ReservaRepo:
 
     def __init__(self, iniciais: list[Reserva]) -> None:
         self._reservas = list(iniciais)
-        self._lock = threading.Lock()
+        self._lock = threading.RLock()
         self._seq = max((int(r.id.split("-")[1]) for r in iniciais), default=0)
 
     def add(self, sala: str, inicio: datetime, fim: datetime, responsavel: str) -> Reserva:
@@ -94,6 +95,14 @@ class ReservaRepo:
             r = Reserva(f"res-{self._seq:04d}", sala, inicio, fim, responsavel)
             self._reservas.append(r)
             return r
+
+    def reservar_se_livre(self, sala: str, inicio: datetime, fim: datetime, responsavel: str) -> Reserva | None:
+        """Checa conflito e reserva sob o mesmo lock: as tools sincronas rodam em thread pool."""
+        # ponytail: lock global; lock por sala se a contencao aparecer em medicao.
+        with self._lock:
+            if conflitos(self, sala, inicio, fim):
+                return None
+            return self.add(sala, inicio, fim, responsavel)
 
     def todas(self) -> list[Reserva]:
         return list(self._reservas)

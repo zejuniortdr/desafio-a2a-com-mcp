@@ -62,4 +62,33 @@ async def test_erro_jsonrpc():
     c = McpClient("http://mcp/mcp", transport=httpx.MockTransport(handler))
     with pytest.raises(McpError) as e:
         await c.call_tool("t", {}, TRACE)
-    assert e.value.code == -32602
+    assert (e.value.code, e.value.message) == (-32602, "ruim")
+
+
+@pytest.mark.parametrize("corpo", [{"detail": "Bad Gateway"}, ["lixo"], {"result": "nao e objeto"}])
+async def test_corpo_json_que_nao_e_jsonrpc_vira_mcp_error(corpo):
+    # Regressao: um 502 com corpo JSON sem result/error levantava KeyError e prendia a Task em WORKING.
+    c = McpClient("http://mcp/mcp", transport=httpx.MockTransport(lambda req: httpx.Response(502, json=corpo)))
+    with pytest.raises(McpError) as e:
+        await c.list_tools(TRACE)
+    assert e.value.code == -32603 and "502" in e.value.message
+
+
+async def test_resposta_que_nao_e_json_vira_mcp_error():
+    c = McpClient("http://mcp/mcp", transport=httpx.MockTransport(lambda req: httpx.Response(502, text="<html>")))
+    with pytest.raises(McpError) as e:
+        await c.list_tools(TRACE)
+    assert e.value.code == -32700
+
+
+async def test_envelope_do_tools_call_e_is_error():
+    vistos = []
+    c = cliente([{"resultType": "complete", "isError": True, "content": [{"text": "a"}, {"text": "b"}]}], vistos)
+    r = await c.call_tool("reservar_sala", {"sala": "x"}, TRACE)
+    assert (r.kind, r.is_error, r.text, r.structured) == ("complete", True, "a b", None)
+    h, b = vistos[0]
+    assert (b["jsonrpc"], b["method"]) == ("2.0", "tools/call")
+    assert (b["params"]["name"], b["params"]["arguments"]) == ("reservar_sala", {"sala": "x"})
+    assert "inputResponses" not in b["params"]
+    assert h["mcp-name"] == "reservar_sala" and h["content-type"] == "application/json"
+    assert b["params"]["_meta"]["io.modelcontextprotocol/clientInfo"]["name"] == "agente-central-de-salas"
