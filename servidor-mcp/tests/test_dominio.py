@@ -198,6 +198,6 @@ def test_alternativas_vazia_para_mirante():
 
 
 def test_versao_politica():
-    versao = versao_politica(DADOS / "politica-de-uso.md")
+    versao = versao_politica((DADOS / "politica-de-uso.md").read_text(encoding="utf-8"))
 
     assert versao == "2026-11-01"

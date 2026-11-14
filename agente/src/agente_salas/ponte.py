@@ -35,10 +35,15 @@ def _alternativas(enum: list[str]) -> str:
 
 
 # Tudo que pode sair de uma conversa com o servidor MCP: erro de protocolo, de rede, ou resposta
-# fora do formato esperado. Qualquer um deles leva a Task a FAILED; nenhum pode deixa-la em WORKING.
+# fora do formato esperado. Qualquer um deles leva a Task a FAILED (exceto _NAO_CHEGOU na continuacao,
+# que devolve a pausa); nenhum pode deixa-la em WORKING.
 # AttributeError: item de content que nao e dict. RuntimeError: StopIteration (inputRequests vazio)
 # convertido pela coroutine. ValueError: primeira linha da politica sem ':'.
 _FALHAS_MCP = (McpError, httpx.HTTPError, KeyError, IndexError, TypeError, AttributeError, RuntimeError, ValueError)
+
+# Falha de conexao: o request nao saiu daqui, entao o servidor nao viu nada e nao houve efeito colateral.
+_NAO_CHEGOU = (httpx.ConnectError, httpx.ConnectTimeout)
+MAX_TENTATIVAS_INVALIDAS = 3
 
 
 def _descrever(err: Exception) -> str:
@@ -83,7 +88,12 @@ class BridgeService:
             raise PedidoInvalido(f"Task {task.id} aguarda a resposta da pausa: escolha=<id da sala> ou escolha=recusar")
         task.mensagem("ROLE_USER", texto, message_id=message_id)
         if escolha.valor != "recusar" and escolha.valor not in task.enum:
-            task.transicionar(TaskState.INPUT_REQUIRED, _alternativas(task.enum))
+            task.tentativas_invalidas += 1
+            if task.tentativas_invalidas >= MAX_TENTATIVAS_INVALIDAS:
+                task.limpar_pausa()
+                task.transicionar(TaskState.CANCELED, f"Tentativas esgotadas: {MAX_TENTATIVAS_INVALIDAS} escolhas fora das alternativas")
+            else:
+                task.transicionar(TaskState.INPUT_REQUIRED, _alternativas(task.enum))
             return task
         trace_id = trace_id_de(traceparent) or task.trace_id
         resposta = {"action": "decline"} if escolha.valor == "recusar" else {"action": "accept", "content": {"sala": escolha.valor}}
@@ -97,6 +107,10 @@ class BridgeService:
             resultado = await self._mcp.call_tool(TOOL_RESERVA, asdict(pedido), trace_id, {chave: resposta}, estado)
             task.limpar_pausa()
             return self._aplicar(task, resultado, politica)
+        except _NAO_CHEGOU as err:
+            # Nada chegou ao servidor (ex.: reiniciando): o requestState continua valido, a pausa fica.
+            task.transicionar(TaskState.INPUT_REQUIRED, f"{_descrever(err)}. Tente de novo; {_alternativas(task.enum)}")
+            return task
         except _FALHAS_MCP as err:
             return self._falhar(task, _descrever(err))
 

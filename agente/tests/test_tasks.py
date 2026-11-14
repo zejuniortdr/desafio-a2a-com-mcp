@@ -1,5 +1,6 @@
 import pytest
 
+from agente_salas import tasks
 from agente_salas.tasks import TERMINAIS, TaskNaoEncontrada, TaskState, TaskStore, TaskTerminal
 
 
@@ -49,6 +50,23 @@ def test_transicao_invalida():
 
     with pytest.raises(ValueError):
         t.transicionar(TaskState.COMPLETED)
+
+
+def test_store_descarta_tasks_paradas_alem_da_retencao(monkeypatch):
+    # Regressao: o TaskStore nunca removia nada; a memoria crescia sem limite.
+    agora = [1000.0]
+    monkeypatch.setattr(tasks, "monotonic", lambda: agora[0])
+    s = TaskStore()
+    velha, ativa = s.create("t"), s.create("t")
+    agora[0] += tasks.RETENCAO_S - 1
+    ativa.transicionar(TaskState.WORKING)  # tocar renova a retencao
+    agora[0] += 2
+
+    s.create("t")
+
+    with pytest.raises(TaskNaoEncontrada):
+        s.get(velha.id)
+    assert s.get(ativa.id) is ativa
 
 
 def test_task_inexistente():

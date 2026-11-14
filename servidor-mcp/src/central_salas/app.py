@@ -36,7 +36,7 @@ def criar_servidor(cfg: Config) -> MCPServer:
         request_state_security=RequestStateSecurity(keys=[cfg.secret], ttl=TTL_REQUEST_STATE_S),
         middleware=[_log_request],
     )
-    registrar_tools(srv, salas, repo, versao_politica(cfg.dados_dir / "politica-de-uso.md"))
+    registrar_tools(srv, salas, repo, versao_politica(politica_md))
 
     @srv.resource(POLITICA_URI, name="politica-de-uso", mime_type="text/markdown")
     def politica() -> str:

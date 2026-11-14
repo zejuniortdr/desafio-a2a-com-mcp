@@ -59,9 +59,8 @@ def carregar_reservas(path: Path) -> list[Reserva]:
     ]
 
 
-def versao_politica(path: Path) -> str:
-    primeira = path.read_text(encoding="utf-8").splitlines()[0]
-    return primeira.split(":", 1)[1].strip()
+def versao_politica(politica_md: str) -> str:
+    return politica_md.splitlines()[0].split(":", 1)[1].strip()
 
 
 def validar(sala_id: str, inicio: str, fim: str, salas: list[Sala]) -> tuple[Sala, datetime, datetime]:

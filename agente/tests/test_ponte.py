@@ -148,6 +148,38 @@ async def test_escolha_fora_do_enum_mantem_pausa_sem_chamar_mcp(ponte, mcp):
     assert len(mcp.calls) == antes
 
 
+async def test_tentativas_fora_do_enum_tem_limite(ponte):
+    # Regressao: um cliente em loop com escolha invalida crescia o history da Task sem fim.
+    pausada = await ponte.iniciar(PEDIDO, TP)
+
+    estados = [(await ponte.continuar(pausada.id, "escolha=sala-aquario", TP)).state for _ in range(3)]
+
+    assert estados == [TaskState.INPUT_REQUIRED, TaskState.INPUT_REQUIRED, TaskState.CANCELED]
+    assert "Tentativas esgotadas" in texto_status(pausada) and pausada.request_state is None
+
+
+@pytest.mark.parametrize("erro", [httpx.ConnectError("conexao recusada"), httpx.ConnectTimeout("timeout ao conectar")])
+@pytest.mark.parametrize("metodo", ["read_resource", "call_tool"])
+async def test_servidor_fora_do_ar_na_continuacao_mantem_a_pausa(ponte, mcp, metodo, erro):
+    # Regressao: ConnectError (nada chegou ao servidor) levava a Task a FAILED e jogava fora um requestState valido.
+    pausada = await ponte.iniciar(PEDIDO, TP)
+    original = getattr(mcp, metodo)
+
+    async def boom(*a, **k):
+        raise erro
+
+    setattr(mcp, metodo, boom)
+    t = await ponte.continuar(pausada.id, "escolha=sala-fusca", TP)
+
+    assert t.state == TaskState.INPUT_REQUIRED and t.request_state == "STATE-SEGREDO-Marty-1"
+    assert "Servidor MCP indisponivel" in texto_status(t) and "sala-fusca, sala-mirante" in texto_status(t)
+
+    setattr(mcp, metodo, original)
+    t = await ponte.continuar(pausada.id, "escolha=sala-fusca", TP)
+
+    assert t.state == TaskState.COMPLETED
+
+
 async def test_escolha_valida_depois_de_uma_fora_do_enum_conclui(ponte):
     pausada = await ponte.iniciar(PEDIDO, TP)
     await ponte.continuar(pausada.id, "escolha=sala-aquario", TP)
@@ -228,7 +260,7 @@ async def test_erro_do_mcp_vira_failed(ponte, mcp):
 @pytest.mark.parametrize(
     "erro, trecho",
     [
-        (httpx.ConnectError("conexao recusada"), "Servidor MCP indisponivel: conexao recusada"),
+        (httpx.ReadTimeout("sem resposta"), "Servidor MCP indisponivel: sem resposta"),
         (KeyError("result"), "fora do formato esperado"),
         (IndexError("contents"), "fora do formato esperado"),
         (TypeError("nao e dict"), "fora do formato esperado"),
