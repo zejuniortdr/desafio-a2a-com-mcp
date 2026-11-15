@@ -1,0 +1,4 @@
+# Config unica de lint/format dos dois pacotes. Versao do ruff travada no workflow `ruff`.
+target-version = "py310"
+line-length = 120
+extend-exclude = ["graphify-out", "mutants"]
