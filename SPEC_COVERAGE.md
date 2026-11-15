@@ -102,8 +102,8 @@ Legenda: `S:` = `servidor-mcp/tests/`, `A:` = `agente/tests/`, `Vnn` = verificac
 | 65 | Sem LLM no caminho nem nas dependencias; mesmo pedido, mesmo resultado | V36; A:test_contratos::test_agente_nao_importa_..., ::test_mesmo_pedido_duas_vezes_produz_o_mesmo_resultado |
 | 66 | Versoes travadas (`==`) nos `pyproject.toml` | inspecao dos dois `pyproject.toml` (sem teste automatizado) |
 | 67 | `dados/`, `validador/`, `exemplos/` intactos | `git log -- dados validador exemplos` mostra so o commit inicial (verificado manualmente) |
-| 68 | README com as 4 secoes; comandos funcionam em clone limpo | workflow `validador` (CI) e a execucao em clone limpo descrita na secao 3 |
-| 69 | Validador 36/36 em processos recem-iniciados, saida 0 | workflow `validador`; execucao em clone limpo (secao 3) |
+| 68 | README com as 4 secoes; comandos funcionam em clone limpo | workflow `validador` (CI) e a execucao em clone limpo (secao 4) |
+| 69 | Validador 36/36 em processos recem-iniciados, saida 0 | workflow `validador`; execucao em clone limpo (secao 4) |
 | 70 | `traceparent` visivel no stderr do servidor | workflow `validador` (`grep "traceparent=00-$trace-"`) |
 
 ## 2. Mutation testing (mutmut 3.8.1)
@@ -118,7 +118,7 @@ Comando, em cada pacote: `.venv/bin/mutmut run` (config em `[tool.mutmut]` de ca
 
 Antes: servidor 77 % (82 sobreviventes + 21 sem teste em `main`), agente 74 % (193 sobreviventes + 66 sem teste + 1 timeout).
 
-Os 27 restantes foram analisados um a um e sao equivalentes:
+Os 27 restantes (sob Python 3.10 sao 24: os tres `_dt` morrem, ver secao 4) foram analisados um a um e sao equivalentes:
 
 | Mutantes | Por que sao equivalentes |
 |----------|--------------------------|
@@ -127,7 +127,7 @@ Os 27 restantes foram analisados um a um e sao equivalentes:
 | `config.carregar_config_13` (default `"XXXX"` para o segredo) e `_16` (`aleatorios = 1` no `ValueError`) | Ausente ou nao-hex continua dando < 32 bytes e `ConfigInvalida`; o resultado observavel e o mesmo. |
 | `tools._exigir_elicitation_form_26/27/29/30/32/33/34` (`by_alias`, `mode`) | `{"elicitation": {"form": {}}}` serializa igual com qualquer combinacao dessas opcoes (nomes ja em minusculo, sem aliases, sem tipos nao-JSON). |
 | `tools.registrar_tools_20` (`request_state or ""` -> `"XXXX"`) | O ramo so e alcancado com `request_state is not None`; o fallback nunca e usado. |
-| `dominio._dt_3/10/11` (tratamento do sufixo `Z`) | Equivalentes no Python >= 3.11, onde `fromisoformat` ja aceita `Z`. Sao mortos no 3.10 por `test_validar_bordas_ok[...Z]` (ver secao 3). |
+| `dominio._dt_3/10/11` (tratamento do sufixo `Z`) | Equivalentes no Python >= 3.11, onde `fromisoformat` ja aceita `Z`. Sao mortos no 3.10 por `test_validar_bordas_ok[...Z]` (ver secao 4). |
 | `pedido.parse_pedido_3` (`texto or ""` -> `"XXXX"`) e `ponte.trace_id_de_5` (idem) | Texto vazio ou `"XXXX"` falham no mesmo regex; mesma excecao ou mesmo `None`. |
 | `ponte.iniciar_16` (`com_ids=None` em vez de `False`) | `None` e falsy; mesmo comportamento. |
 | `a2a.criar_app_128` (`headers.get("TRACEPARENT")`) | Headers HTTP sao case-insensitive no Starlette. |
@@ -145,3 +145,12 @@ Depois de acrescentar testes, apague `mutants/mutmut-stats.json` antes de rodar 
 Alem disso, o working tree tinha uma linha corrompida em `servidor-mcp/tests/test_mrtr.py` (`claudeimport time`), que impedia a coleta do pytest do servidor; foi corrigida.
 
 Sem defeito encontrado (o teste passou no codigo atual e falha se o codigo for degradado): double-booking pela borda HTTP (confirmado removendo o lock de `reservar_se_livre`: 5 dos 6 testes de concorrencia do servidor falham), continuacoes duplicadas e mistura de `requestState` entre Tasks.
+
+## 4. Verificacao em clone limpo, Python 3.10.20
+
+`git clone -b feat/ponte` do repositorio em pasta nova, `python3` apontando para o 3.10, seguindo so o README:
+
+- `make install` e `make test`: servidor-mcp 111 passed, agente 190 passed.
+- `REQUEST_STATE_SECRET` exportado (`token_hex(32)`), `central-salas` e `agente-salas` recem-iniciados, `python3 validador/validar.py --agente http://localhost:7300 --mcp http://localhost:7301`: **36 passaram, 0 falharam, de 36 verificacoes, exit 0**.
+- O trace-id impresso pelo validador aparece 9 vezes no stderr do servidor MCP (`traceparent=00-<trace-id>-...`).
+- `mutmut run` dos mutantes `dominio._dt_3/10/11` sob 3.10: os tres **mortos** (`fromisoformat` do 3.10 rejeita o `Z`; o teste `test_validar_bordas_ok[...Z]` pega).
