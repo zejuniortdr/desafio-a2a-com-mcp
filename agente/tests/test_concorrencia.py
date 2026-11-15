@@ -1,10 +1,10 @@
 """Estresse da maquina de estados: Tasks concorrentes nao se misturam e nenhuma fica em WORKING depois de erro, timeout ou cancelamento."""
+
 import asyncio
 
 import httpx
 import pytest
-
-from agente_salas.mcp_client import McpError, McpResult
+from agente_salas.mcp_client import McpError
 from agente_salas.pedido import PedidoInvalido
 from agente_salas.ponte import _CANCELADA, BridgeService
 from agente_salas.tasks import TaskState, TaskStore
@@ -60,7 +60,9 @@ async def test_continuacoes_duplicadas_da_mesma_task_so_uma_chega_ao_mcp():
     t = await ponte.iniciar(PEDIDO, TP)
 
     # Act
-    resultados = await asyncio.gather(*[ponte.continuar(t.id, "escolha=sala-mirante", None) for _ in range(N)], return_exceptions=True)
+    resultados = await asyncio.gather(
+        *[ponte.continuar(t.id, "escolha=sala-mirante", None) for _ in range(N)], return_exceptions=True
+    )
 
     # Assert
     assert sum(1 for r in resultados if not isinstance(r, Exception)) == 1
@@ -115,7 +117,11 @@ async def test_falha_do_mcp_no_pedido_inicial_nunca_deixa_task_em_working(falha,
     assert not [t for t in store._tasks.values() if t.state == TaskState.WORKING]
 
 
-@pytest.mark.parametrize("falha", [f for f in FALHAS if not isinstance(f, (httpx.ConnectError, httpx.ConnectTimeout))], ids=lambda f: type(f).__name__)
+@pytest.mark.parametrize(
+    "falha",
+    [f for f in FALHAS if not isinstance(f, (httpx.ConnectError, httpx.ConnectTimeout))],
+    ids=lambda f: type(f).__name__,
+)
 async def test_falha_do_mcp_na_continuacao_termina_failed_e_libera_o_state(falha):
     # Arrange
     mcp = McpLento()
@@ -133,7 +139,9 @@ async def test_falha_do_mcp_na_continuacao_termina_failed_e_libera_o_state(falha
     assert not [t for t in store._tasks.values() if t.state == TaskState.WORKING]
 
 
-@pytest.mark.parametrize("falha", [httpx.ConnectError("caiu"), httpx.ConnectTimeout("x")], ids=lambda f: type(f).__name__)
+@pytest.mark.parametrize(
+    "falha", [httpx.ConnectError("caiu"), httpx.ConnectTimeout("x")], ids=lambda f: type(f).__name__
+)
 async def test_conexao_recusada_na_continuacao_devolve_a_pausa_e_permite_novo_envio(falha):
     # Arrange
     mcp = McpLento()

@@ -1,11 +1,10 @@
 import json
 
 import pytest
-
 from conftest import call, rpc
 from conftest import texto_de as texto
 
-H = lambda hora: f"2026-11-03T{hora}:00-03:00"  # noqa: E731
+H = lambda hora: f"2026-11-03T{hora}:00-03:00"
 
 
 def test_tools_list(client):
@@ -61,9 +60,18 @@ def test_resource_inexistente(client):
     "args,msg",
     [
         ({"sala": "sala-x", "inicio": H("09:00"), "fim": H("10:00")}, "Sala inexistente: sala-x"),
-        ({"sala": "sala-aquario", "inicio": H("07:00"), "fim": H("08:00")}, "Fora da janela de uso: a politica permite reservas entre 08:00 e 20:00"),
-        ({"sala": "sala-aquario", "inicio": H("09:00"), "fim": H("12:00")}, "Duracao acima do limite: a politica permite no maximo 2 horas"),
-        ({"sala": "sala-aquario", "inicio": H("10:00"), "fim": H("09:00")}, "Intervalo invalido: fim deve ser posterior a inicio"),
+        (
+            {"sala": "sala-aquario", "inicio": H("07:00"), "fim": H("08:00")},
+            "Fora da janela de uso: a politica permite reservas entre 08:00 e 20:00",
+        ),
+        (
+            {"sala": "sala-aquario", "inicio": H("09:00"), "fim": H("12:00")},
+            "Duracao acima do limite: a politica permite no maximo 2 horas",
+        ),
+        (
+            {"sala": "sala-aquario", "inicio": H("10:00"), "fim": H("09:00")},
+            "Intervalo invalido: fim deve ser posterior a inicio",
+        ),
     ],
 )
 @pytest.mark.parametrize("tool", ["consultar_disponibilidade", "reservar_sala"])

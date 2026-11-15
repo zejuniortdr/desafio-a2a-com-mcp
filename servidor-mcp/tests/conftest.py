@@ -1,8 +1,7 @@
 import pytest
-from starlette.testclient import TestClient
-
 from central_salas.app import criar_app
 from central_salas.config import carregar_config
+from starlette.testclient import TestClient
 
 SECRET = "a" * 64
 CAPS_ELIC = {"elicitation": {"form": {}}}

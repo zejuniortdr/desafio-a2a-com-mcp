@@ -4,14 +4,13 @@ import time
 from types import SimpleNamespace
 
 import pytest
-from mcp.server import request_state
-from starlette.testclient import TestClient
-
 from central_salas.app import criar_app
 from central_salas.config import ConfigInvalida, carregar_config
 from conftest import SECRET, call, texto_de
+from mcp.server import request_state
+from starlette.testclient import TestClient
 
-H = lambda hora: f"2026-11-03T{hora}:00-03:00"  # noqa: E731
+H = lambda hora: f"2026-11-03T{hora}:00-03:00"
 GARAGEM = {"sala": "sala-garagem", "inicio": H("14:00"), "fim": H("15:00"), "responsavel": "Marty"}
 ACEITA_FUSCA = {"action": "accept", "content": {"sala": "sala-fusca"}}
 
@@ -24,7 +23,9 @@ def pausar(client, args=GARAGEM):
 
 
 def retomar(client, chave, estado, resposta, args=GARAGEM, id_="2"):
-    return call(client, "reservar_sala", args, id_=id_, extra={"inputResponses": {chave: resposta}, "requestState": estado})
+    return call(
+        client, "reservar_sala", args, id_=id_, extra={"inputResponses": {chave: resposta}, "requestState": estado}
+    )
 
 
 def disponibilidade(client, sala, ini, fim):
@@ -271,6 +272,7 @@ def test_state_selado_com_conteudo_invalido_vira_32602(client, monkeypatch, cont
     status, b = retomar(client, chave, estado, ACEITA_FUSCA)
 
     # Assert
+    assert status == 400
     assert b["error"]["code"] == -32602 and b["error"]["message"] == "requestState invalido"
     assert disponibilidade(client, "sala-fusca", "14:00", "15:00")["livre"] is True
 
@@ -286,13 +288,19 @@ def test_sem_capability_32021_tem_mensagem_e_nao_depende_de_caps_nulas(client):
         _exigir_elicitation_form(SimpleNamespace(client_capabilities=None))
 
     # Assert
+    assert status == 400
     assert b["error"]["message"] == "Client did not declare the form elicitation capability required by reservar_sala"
     assert nulo.value.code == -32021
 
 
 def test_reservar_no_passado_e_permitido(client):
     # Arrange: o enunciado diz que nenhuma regra depende da data de hoje
-    args = {"sala": "sala-porao", "inicio": "2001-01-02T10:00:00-03:00", "fim": "2001-01-02T11:00:00-03:00", "responsavel": "Doc"}
+    args = {
+        "sala": "sala-porao",
+        "inicio": "2001-01-02T10:00:00-03:00",
+        "fim": "2001-01-02T11:00:00-03:00",
+        "responsavel": "Doc",
+    }
 
     # Act
     _, b = call(client, "reservar_sala", args)

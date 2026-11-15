@@ -1,4 +1,5 @@
 """Borda A2A v1.0 (binding JSON-RPC): card, SendMessage e GetTask. Traduz HTTP/JSON-RPC <-> BridgeService."""
+
 from __future__ import annotations
 
 from typing import Any
@@ -91,7 +92,9 @@ def criar_app(bridge: BridgeService, store: TaskStore, public_url: str) -> Starl
             return _erro(id_, UNSUPPORTED_OPERATION, str(e))
         return JSONResponse({"jsonrpc": "2.0", "id": id_, "result": resultado})
 
-    return Starlette(routes=[
-        Route("/.well-known/agent-card.json", card, methods=["GET"]),
-        Route("/a2a", rpc, methods=["POST"]),
-    ])
+    return Starlette(
+        routes=[
+            Route("/.well-known/agent-card.json", card, methods=["GET"]),
+            Route("/a2a", rpc, methods=["POST"]),
+        ]
+    )

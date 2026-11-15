@@ -113,7 +113,8 @@ def conflitos(repo: ReservaRepo, sala: str, inicio: datetime, fim: datetime) -> 
 def alternativas(repo: ReservaRepo, salas: list[Sala], sala_id: str, inicio: datetime, fim: datetime) -> list[Sala]:
     pedida = next(s for s in salas if s.id == sala_id)
     livres = [
-        s for s in salas
+        s
+        for s in salas
         if s.id != sala_id and s.capacidade >= pedida.capacidade and not conflitos(repo, s.id, inicio, fim)
     ]
     return sorted(livres, key=lambda s: (s.capacidade, s.id))[:MAX_ALTERNATIVAS]

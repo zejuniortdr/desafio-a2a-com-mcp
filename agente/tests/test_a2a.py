@@ -1,11 +1,10 @@
 import json
 
 import pytest
-from starlette.testclient import TestClient
-
 from agente_salas.a2a import criar_app
 from agente_salas.ponte import BridgeService
 from agente_salas.tasks import TaskStore
+from starlette.testclient import TestClient
 from test_ponte import PEDIDO, PEDIDO_LIVRE, TP, TRACE, FakeMcp
 
 
@@ -24,7 +23,11 @@ def send(client, texto, task_id=None, headers=None, id_=1):
     msg = {"messageId": "m1", "role": "ROLE_USER", "parts": [{"text": texto}]}
     if task_id:
         msg["taskId"] = task_id
-    return client.post("/a2a", json={"jsonrpc": "2.0", "id": id_, "method": "SendMessage", "params": {"message": msg}}, headers=headers or {}).json()
+    return client.post(
+        "/a2a",
+        json={"jsonrpc": "2.0", "id": id_, "method": "SendMessage", "params": {"message": msg}},
+        headers=headers or {},
+    ).json()
 
 
 def get_task(client, task_id):
@@ -82,9 +85,28 @@ def test_continuacao_conclui_sem_vazar_request_state(client):
     [
         ({"jsonrpc": "2.0", "id": 1, "method": "Nada", "params": {}}, -32601),
         ({"jsonrpc": "2.0", "id": 1, "method": "SendMessage", "params": {}}, -32602),
-        ({"jsonrpc": "2.0", "id": 1, "method": "SendMessage", "params": {"message": {"parts": [{"text": "bom dia"}]}}}, -32602),
-        ({"jsonrpc": "2.0", "id": 1, "method": "SendMessage", "params": {"message": {"parts": [{"url": "x"}]}}}, -32602),
-        ({"jsonrpc": "2.0", "id": 1, "method": "SendMessage", "params": {"message": {"taskId": 5, "parts": [{"text": "escolha=a"}]}}}, -32602),
+        (
+            {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "SendMessage",
+                "params": {"message": {"parts": [{"text": "bom dia"}]}},
+            },
+            -32602,
+        ),
+        (
+            {"jsonrpc": "2.0", "id": 1, "method": "SendMessage", "params": {"message": {"parts": [{"url": "x"}]}}},
+            -32602,
+        ),
+        (
+            {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "SendMessage",
+                "params": {"message": {"taskId": 5, "parts": [{"text": "escolha=a"}]}},
+            },
+            -32602,
+        ),
         ({"jsonrpc": "2.0", "id": 1, "method": "GetTask", "params": {"id": "task-nada"}}, -32001),
         ({"jsonrpc": "2.0", "id": 1, "method": "GetTask", "params": {}}, -32602),
         ({"jsonrpc": "2.0", "id": 1, "method": "SendMessage", "params": [1]}, -32602),

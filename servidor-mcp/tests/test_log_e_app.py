@@ -2,7 +2,6 @@ import json
 import logging
 
 import pytest
-
 from central_salas.app import _log_corpo
 
 TP = "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"  # 55 caracteres

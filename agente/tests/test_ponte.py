@@ -2,7 +2,6 @@ import json
 
 import httpx
 import pytest
-
 from agente_salas.mcp_client import McpError, McpResult
 from agente_salas.pedido import PedidoInvalido
 from agente_salas.ponte import MAX_TENTATIVAS_REGISTRADAS, BridgeService
@@ -32,15 +31,33 @@ class FakeMcp:
     async def call_tool(self, name, arguments, trace_id, input_responses=None, request_state=None):
         self.calls.append(("tools/call", trace_id, arguments, input_responses, request_state, name))
         if arguments["sala"] == "sala-x":
-            return McpResult("complete", is_error=True, text="Error executing tool reservar_sala: Sala inexistente: sala-x")
+            return McpResult(
+                "complete", is_error=True, text="Error executing tool reservar_sala: Sala inexistente: sala-x"
+            )
         if request_state is None and arguments["sala"] == "sala-garagem":
             self.n += 1
-            return McpResult("input_required", input_key="k", enum=["sala-fusca", "sala-mirante"], request_state=f"STATE-SEGREDO-{arguments['responsavel']}-{self.n}")
+            return McpResult(
+                "input_required",
+                input_key="k",
+                enum=["sala-fusca", "sala-mirante"],
+                request_state=f"STATE-SEGREDO-{arguments['responsavel']}-{self.n}",
+            )
         resp = (input_responses or {}).get("k", {})
         if resp.get("action") == "decline":
             return McpResult("complete", structured={"reservado": False, "motivo": "recusou"})
         sala = resp.get("content", {}).get("sala", arguments["sala"])
-        return McpResult("complete", structured={"reserva": "res-0003", "reservado": True, "sala": sala, "inicio": arguments["inicio"], "fim": arguments["fim"], "responsavel": arguments["responsavel"], "politica": "2026-11-01"})
+        return McpResult(
+            "complete",
+            structured={
+                "reserva": "res-0003",
+                "reservado": True,
+                "sala": sala,
+                "inicio": arguments["inicio"],
+                "fim": arguments["fim"],
+                "responsavel": arguments["responsavel"],
+                "politica": "2026-11-01",
+            },
+        )
 
 
 @pytest.fixture
@@ -67,7 +84,14 @@ async def test_sala_livre_conclui_com_artifact(ponte):
     assert t.state == TaskState.COMPLETED
     art = t.artifacts[0]
     assert art["name"] == "reserva"
-    assert json.loads(art["parts"][0]["text"]) == {"reserva": "res-0003", "sala": "sala-porao", "inicio": "2026-11-03T14:00:00-03:00", "fim": "2026-11-03T15:00:00-03:00", "responsavel": "Marty", "politica": "2026-11-01"}
+    assert json.loads(art["parts"][0]["text"]) == {
+        "reserva": "res-0003",
+        "sala": "sala-porao",
+        "inicio": "2026-11-03T14:00:00-03:00",
+        "fim": "2026-11-03T15:00:00-03:00",
+        "responsavel": "Marty",
+        "politica": "2026-11-01",
+    }
 
 
 async def test_descoberta_antes_da_primeira_chamada_e_trace(ponte, mcp):
