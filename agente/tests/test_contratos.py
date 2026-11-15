@@ -1,4 +1,5 @@
 """Contratos exatos (textos, chaves, codigos) que o validador e o enunciado cobram. Complementa os demais testes."""
+
 import json
 import logging
 import re
@@ -6,8 +7,6 @@ import sys
 
 import httpx
 import pytest
-from starlette.testclient import TestClient
-
 from agente_salas import main as main_mod
 from agente_salas import tasks
 from agente_salas.a2a import criar_app
@@ -17,6 +16,7 @@ from agente_salas.mcp_client import McpClient, McpError, McpResult, novo_tracepa
 from agente_salas.pedido import PedidoInvalido, parse_pedido
 from agente_salas.ponte import BridgeService, _versao, trace_id_de
 from agente_salas.tasks import Task, TaskNaoEncontrada, TaskState, TaskStore, TaskTerminal, novo_id
+from starlette.testclient import TestClient
 from test_ponte import PEDIDO, PEDIDO_LIVRE, TP, TRACE, FakeMcp
 
 # ---------- card ----------
@@ -271,7 +271,11 @@ def test_metodos_http_errados_dao_405(client):
 def cliente_http(resposta, vistos):
     def handler(req: httpx.Request) -> httpx.Response:
         vistos.append(req)
-        return resposta(req) if callable(resposta) else httpx.Response(200, json={"jsonrpc": "2.0", "id": "x", "result": resposta})
+        return (
+            resposta(req)
+            if callable(resposta)
+            else httpx.Response(200, json={"jsonrpc": "2.0", "id": "x", "result": resposta})
+        )
 
     return McpClient("http://mcp/mcp", transport=httpx.MockTransport(handler))
 
@@ -305,8 +309,16 @@ async def test_cabecalhos_e_corpo_exatos():
     nomes = {k.decode() for k, _ in req.headers.raw}
     assert {"Content-Type", "Accept", "MCP-Protocol-Version", "Mcp-Method", "Mcp-Name"} <= nomes
     assert {n.lower() for n in nomes} <= {
-        "content-type", "accept", "mcp-protocol-version", "mcp-method", "mcp-name",
-        "host", "content-length", "accept-encoding", "connection", "user-agent",
+        "content-type",
+        "accept",
+        "mcp-protocol-version",
+        "mcp-method",
+        "mcp-name",
+        "host",
+        "content-length",
+        "accept-encoding",
+        "connection",
+        "user-agent",
     }
     assert req.headers["accept"] == "application/json, text/event-stream"
     corpo = json.loads(req.content)
@@ -355,7 +367,9 @@ async def test_resposta_nao_json_tem_mensagem_com_status_http():
 
 async def test_erro_jsonrpc_propaga_code_message_e_data():
     # Arrange
-    c = cliente_http(lambda r: httpx.Response(400, json={"error": {"code": -32021, "message": "faltou", "data": {"x": 1}}}), [])
+    c = cliente_http(
+        lambda r: httpx.Response(400, json={"error": {"code": -32021, "message": "faltou", "data": {"x": 1}}}), []
+    )
 
     # Act
     with pytest.raises(McpError) as e:
@@ -392,7 +406,11 @@ async def test_call_tool_conteudo_sem_texto_ou_ausente():
 
 async def test_pausa_sem_enum_nem_const_tem_lista_vazia():
     # Arrange
-    pausa = {"resultType": "input_required", "requestState": "S", "inputRequests": {"k": {"params": {"requestedSchema": {"properties": {"sala": {"type": "string"}}}}}}}
+    pausa = {
+        "resultType": "input_required",
+        "requestState": "S",
+        "inputRequests": {"k": {"params": {"requestedSchema": {"properties": {"sala": {"type": "string"}}}}}},
+    }
     c = cliente_http(pausa, [])
 
     # Act
@@ -435,7 +453,10 @@ def ponte(mcp):
     return BridgeService(mcp, TaskStore())
 
 
-@pytest.mark.parametrize("md,esperado", [("versao:2026-11-01", "2026-11-01"), ("versao: 12:30:45", "12:30:45"), ("versao:   x  \n\n- r: y", "x")])
+@pytest.mark.parametrize(
+    "md,esperado",
+    [("versao:2026-11-01", "2026-11-01"), ("versao: 12:30:45", "12:30:45"), ("versao:   x  \n\n- r: y", "x")],
+)
 def test_versao_corta_so_no_primeiro_dois_pontos(md, esperado):
     # Arrange / Act / Assert
     assert _versao(md) == esperado
@@ -472,8 +493,11 @@ async def test_resposta_do_usuario_entra_no_historico_com_ids(ponte):
     # Assert
     user = [m for m in t.history if m["role"] == "ROLE_USER"][1]
     assert user == {
-        "messageId": "m-esc", "role": "ROLE_USER", "parts": [{"text": "escolha=sala-mirante"}],
-        "taskId": t.id, "contextId": t.context_id,
+        "messageId": "m-esc",
+        "role": "ROLE_USER",
+        "parts": [{"text": "escolha=sala-mirante"}],
+        "taskId": t.id,
+        "contextId": t.context_id,
     }
 
 
@@ -488,8 +512,14 @@ async def test_mensagens_de_recusa_de_pedido(ponte):
         await ponte.continuar(pausada.id, PEDIDO, None)
 
     # Assert
-    assert str(sem_task.value) == "Sem taskId nao ha pausa para responder: envie 'reservar sala=... inicio=... fim=... responsavel=...'"
-    assert str(sem_escolha.value) == f"Task {pausada.id} aguarda a resposta da pausa: escolha=<id da sala> ou escolha=recusar"
+    assert (
+        str(sem_task.value)
+        == "Sem taskId nao ha pausa para responder: envie 'reservar sala=... inicio=... fim=... responsavel=...'"
+    )
+    assert (
+        str(sem_escolha.value)
+        == f"Task {pausada.id} aguarda a resposta da pausa: escolha=<id da sala> ou escolha=recusar"
+    )
 
 
 async def test_mensagens_de_estado_invalido_na_continuacao(ponte):
@@ -653,7 +683,7 @@ def test_agente_nao_importa_o_servidor_nem_sdk_de_llm_e_nao_tem_regra_de_sala():
 
     # Act / Assert
     assert "central_salas" not in codigo
-    assert not re.search(r"\b(openai|anthropic|langchain|google\.generativeai|ollama)\b", codigo + deps, re.I)
+    assert not re.search(r"\b(openai|anthropic|langchain|google\.generativeai|ollama)\b", codigo + deps, re.IGNORECASE)
     assert not re.search(r"\b(08:00|20:00|capacidade|MAX_ALTERNATIVAS)\b", codigo)  # politica e dominio sao do servidor
 
 

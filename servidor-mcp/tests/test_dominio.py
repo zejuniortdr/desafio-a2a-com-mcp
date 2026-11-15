@@ -2,8 +2,15 @@ from datetime import datetime
 from pathlib import Path
 
 import pytest
-
-from central_salas.dominio import ReservaRepo, alternativas, carregar_reservas, carregar_salas, conflitos, validar, versao_politica
+from central_salas.dominio import (
+    ReservaRepo,
+    alternativas,
+    carregar_reservas,
+    carregar_salas,
+    conflitos,
+    validar,
+    versao_politica,
+)
 from central_salas.erros import ErroDeNegocio
 
 DADOS = Path(__file__).resolve().parents[2] / "dados"
@@ -29,19 +36,64 @@ def intervalo(sala: str, ini: str, fim: str):
         ("sala-x", d("03", "09:00"), d("03", "10:00"), "Sala inexistente: sala-x"),
         ("sala-aquario", d("03", "10:00"), d("03", "09:00"), "Intervalo invalido: fim deve ser posterior a inicio"),
         ("sala-aquario", d("03", "10:00"), d("03", "10:00"), "Intervalo invalido: fim deve ser posterior a inicio"),
-        ("sala-aquario", d("03", "07:00"), d("03", "08:00"), "Fora da janela de uso: a politica permite reservas entre 08:00 e 20:00"),
-        ("sala-aquario", d("03", "19:30"), d("03", "20:30"), "Fora da janela de uso: a politica permite reservas entre 08:00 e 20:00"),
+        (
+            "sala-aquario",
+            d("03", "07:00"),
+            d("03", "08:00"),
+            "Fora da janela de uso: a politica permite reservas entre 08:00 e 20:00",
+        ),
+        (
+            "sala-aquario",
+            d("03", "19:30"),
+            d("03", "20:30"),
+            "Fora da janela de uso: a politica permite reservas entre 08:00 e 20:00",
+        ),
         # regressao: segundos/microssegundos eram ignorados e 20:00:59 passava
-        ("sala-aquario", d("03", "19:00"), "2026-11-03T20:00:59-03:00", "Fora da janela de uso: a politica permite reservas entre 08:00 e 20:00"),
-        ("sala-aquario", d("03", "19:00"), "2026-11-03T20:00:00.500000-03:00", "Fora da janela de uso: a politica permite reservas entre 08:00 e 20:00"),
-        ("sala-aquario", d("03", "09:00"), d("03", "12:00"), "Duracao acima do limite: a politica permite no maximo 2 horas"),
+        (
+            "sala-aquario",
+            d("03", "19:00"),
+            "2026-11-03T20:00:59-03:00",
+            "Fora da janela de uso: a politica permite reservas entre 08:00 e 20:00",
+        ),
+        (
+            "sala-aquario",
+            d("03", "19:00"),
+            "2026-11-03T20:00:00.500000-03:00",
+            "Fora da janela de uso: a politica permite reservas entre 08:00 e 20:00",
+        ),
+        (
+            "sala-aquario",
+            d("03", "09:00"),
+            d("03", "12:00"),
+            "Duracao acima do limite: a politica permite no maximo 2 horas",
+        ),
         # precedencia: sala > intervalo > janela > duracao
         ("sala-x", d("03", "12:00"), d("03", "06:00"), "Sala inexistente: sala-x"),
         ("sala-aquario", d("03", "22:00"), d("03", "06:00"), "Intervalo invalido: fim deve ser posterior a inicio"),
-        ("sala-aquario", d("03", "06:00"), d("03", "12:00"), "Fora da janela de uso: a politica permite reservas entre 08:00 e 20:00"),
-        ("sala-aquario", "2026-11-03T05:00:00-03:00", "2026-11-03T06:00:00-03:00", "Fora da janela de uso: a politica permite reservas entre 08:00 e 20:00"),
-        ("sala-aquario", "nao-e-data", d("03", "10:00"), "Intervalo invalido: informe inicio e fim em ISO 8601 com fuso"),
-        ("sala-aquario", "2026-11-03T09:00:00", d("03", "10:00"), "Intervalo invalido: informe inicio e fim em ISO 8601 com fuso"),
+        (
+            "sala-aquario",
+            d("03", "06:00"),
+            d("03", "12:00"),
+            "Fora da janela de uso: a politica permite reservas entre 08:00 e 20:00",
+        ),
+        (
+            "sala-aquario",
+            "2026-11-03T05:00:00-03:00",
+            "2026-11-03T06:00:00-03:00",
+            "Fora da janela de uso: a politica permite reservas entre 08:00 e 20:00",
+        ),
+        (
+            "sala-aquario",
+            "nao-e-data",
+            d("03", "10:00"),
+            "Intervalo invalido: informe inicio e fim em ISO 8601 com fuso",
+        ),
+        (
+            "sala-aquario",
+            "2026-11-03T09:00:00",
+            d("03", "10:00"),
+            "Intervalo invalido: informe inicio e fim em ISO 8601 com fuso",
+        ),
     ],
 )
 def test_validar_erros(sala, ini, fim, msg):
@@ -185,7 +237,11 @@ def test_alternativas_limite_tres_e_desempate_por_id():
 
     alts = alternativas(r, SALAS, "sala-aquario", i, f)
 
-    assert [s.id for s in alts] == ["sala-porao", "sala-fusca", "sala-garagem"]  # cap 6, 12(fusca<garagem); mirante cortado
+    assert [s.id for s in alts] == [
+        "sala-porao",
+        "sala-fusca",
+        "sala-garagem",
+    ]  # cap 6, 12(fusca<garagem); mirante cortado
 
 
 def test_alternativas_vazia_para_mirante():
@@ -231,8 +287,16 @@ def fuso_local(monkeypatch):
 @pytest.mark.parametrize(
     "tz,ini,fim",
     [
-        ("UTC", "2026-11-03T21:00:00+00:00", "2026-11-03T22:00:00+00:00"),  # 18h-19h em SP; fora da janela se lido em UTC
-        ("Pacific/Kiritimati", "2026-11-03T19:00:00-03:00", "2026-11-03T20:00:00-03:00"),  # dia local diferente do de SP
+        (
+            "UTC",
+            "2026-11-03T21:00:00+00:00",
+            "2026-11-03T22:00:00+00:00",
+        ),  # 18h-19h em SP; fora da janela se lido em UTC
+        (
+            "Pacific/Kiritimati",
+            "2026-11-03T19:00:00-03:00",
+            "2026-11-03T20:00:00-03:00",
+        ),  # dia local diferente do de SP
     ],
 )
 def test_janela_e_sempre_avaliada_no_fuso_de_sao_paulo(fuso_local, tz, ini, fim):

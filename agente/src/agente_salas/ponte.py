@@ -3,6 +3,7 @@
 E o unico modulo que conhece os dois protocolos. Nao ha regra de sala aqui: conflito, politica e
 alternativas sao decisao do servidor MCP; o agente so traduz protocolo.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -44,7 +45,9 @@ _FALHAS_MCP = (McpError, httpx.HTTPError, KeyError, IndexError, TypeError, Attri
 
 # Falha de conexao: o request nao saiu daqui, entao o servidor nao viu nada e nao houve efeito colateral.
 _NAO_CHEGOU = (httpx.ConnectError, httpx.ConnectTimeout)
-MAX_TENTATIVAS_INVALIDAS = 3
+# Escolhas fora do enum mantem a pausa sempre (enunciado); so as primeiras entram no history,
+# para um cliente em loop nao crescer a Task sem limite.
+MAX_TENTATIVAS_REGISTRADAS = 3
 _CANCELADA = "Processamento interrompido antes de concluir (chamador cancelou ou expirou o prazo)"
 
 
@@ -64,7 +67,9 @@ class BridgeService:
     async def iniciar(self, texto: str, traceparent: str | None, message_id: str | None = None) -> Task:
         pedido = parse_pedido(texto)
         if not isinstance(pedido, PedidoReserva):
-            raise PedidoInvalido("Sem taskId nao ha pausa para responder: envie 'reservar sala=... inicio=... fim=... responsavel=...'")
+            raise PedidoInvalido(
+                "Sem taskId nao ha pausa para responder: envie 'reservar sala=... inicio=... fim=... responsavel=...'"
+            )
         task = self._store.create(trace_id_de(traceparent) or secrets.token_hex(16))
         task.mensagem("ROLE_USER", texto, com_ids=False, message_id=message_id)
         task.transicionar(TaskState.WORKING)
@@ -94,17 +99,19 @@ class BridgeService:
         escolha = parse_pedido(texto)
         if not isinstance(escolha, Escolha):
             raise PedidoInvalido(f"Task {task.id} aguarda a resposta da pausa: escolha=<id da sala> ou escolha=recusar")
-        task.mensagem("ROLE_USER", texto, message_id=message_id)
         if escolha.valor != "recusar" and escolha.valor not in task.enum:
             task.tentativas_invalidas += 1
-            if task.tentativas_invalidas >= MAX_TENTATIVAS_INVALIDAS:
-                task.limpar_pausa()
-                task.transicionar(TaskState.CANCELED, f"Tentativas esgotadas: {MAX_TENTATIVAS_INVALIDAS} escolhas fora das alternativas")
-            else:
-                task.transicionar(TaskState.INPUT_REQUIRED, _alternativas(task.enum))
+            registrar = task.tentativas_invalidas <= MAX_TENTATIVAS_REGISTRADAS
+            task.mensagem("ROLE_USER", texto, message_id=message_id, registrar=registrar)
+            task.transicionar(TaskState.INPUT_REQUIRED, _alternativas(task.enum), registrar=registrar)
             return task
+        task.mensagem("ROLE_USER", texto, message_id=message_id)
         trace_id = trace_id_de(traceparent) or task.trace_id
-        resposta = {"action": "decline"} if escolha.valor == "recusar" else {"action": "accept", "content": {"sala": escolha.valor}}
+        resposta = (
+            {"action": "decline"}
+            if escolha.valor == "recusar"
+            else {"action": "accept", "content": {"sala": escolha.valor}}
+        )
         chave, estado, pedido = task.input_key, task.request_state, task.pedido
         assert chave is not None and estado is not None and pedido is not None
         task.transicionar(TaskState.WORKING)  # sem await entre a checagem de estado e aqui: sem corrida
@@ -122,7 +129,9 @@ class BridgeService:
         except _FALHAS_MCP as err:
             return self._falhar(task, _descrever(err))
         except asyncio.CancelledError:
-            self._falhar(task, _CANCELADA)  # o servidor pode ter reservado: nao devolver a pausa para um retry duplicado
+            self._falhar(
+                task, _CANCELADA
+            )  # o servidor pode ter reservado: nao devolver a pausa para um retry duplicado
             raise
         except Exception as err:  # bug nosso: a Task ainda assim sai de WORKING, e o erro sobe para a borda
             self._falhar(task, f"Erro interno do agente: {type(err).__name__}")

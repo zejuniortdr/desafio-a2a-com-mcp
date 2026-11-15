@@ -1,5 +1,4 @@
 import pytest
-
 from agente_salas.pedido import Escolha, PedidoInvalido, PedidoReserva, parse_pedido
 
 
@@ -18,7 +17,9 @@ def test_escolha(t, v):
     assert p == Escolha(v)
 
 
-@pytest.mark.parametrize("t", ["", "oi", "reservar sala=a", "escolha=", "escolha=a b", None, "reservar sala=a inicio=b fim=c"])
+@pytest.mark.parametrize(
+    "t", ["", "oi", "reservar sala=a", "escolha=", "escolha=a b", None, "reservar sala=a inicio=b fim=c"]
+)
 def test_invalidos(t):
     with pytest.raises(PedidoInvalido):
         parse_pedido(t)

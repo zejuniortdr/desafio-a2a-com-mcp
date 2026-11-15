@@ -1,5 +1,4 @@
 import pytest
-
 from agente_salas import tasks
 from agente_salas.tasks import TERMINAIS, TaskNaoEncontrada, TaskState, TaskStore, TaskTerminal
 

@@ -1,22 +1,18 @@
-import asyncio
+import json
 import logging
-from types import SimpleNamespace
 
 import pytest
-
-from central_salas.app import _log_request
+from central_salas.app import _log_corpo
 
 TP = "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"  # 55 caracteres
 
 
 def _logar(caplog, method="tools/call", id_="7", params=None):
-    ctx = SimpleNamespace(method=method, request_id=id_, params=params)
-
-    async def proximo(c):
-        return "ok"
-
+    corpo = {"jsonrpc": "2.0", "id": id_, "method": method}
+    if params is not None:
+        corpo["params"] = params
     caplog.set_level(logging.INFO, logger="central_salas")
-    assert asyncio.run(_log_request(ctx, proximo)) == "ok"
+    _log_corpo(json.dumps(corpo).encode())
     return [r.getMessage() for r in caplog.records if r.name == "central_salas"]
 
 
@@ -67,6 +63,50 @@ def test_log_id_numerico_vira_texto(caplog):
 
     # Assert
     assert linhas == ["method='tools/call' id='42' traceparent=-"]
+
+
+@pytest.mark.parametrize("corpo", [b"nao e json", b"[1, 2]", b""])
+def test_log_corpo_invalido_registra_hifens(caplog, corpo):
+    # Arrange
+    caplog.set_level(logging.INFO, logger="central_salas")
+
+    # Act
+    _log_corpo(corpo)
+
+    # Assert
+    assert [r.getMessage() for r in caplog.records if r.name == "central_salas"] == ["method='-' id='-' traceparent=-"]
+
+
+@pytest.mark.parametrize("omitir", ["protocolVersion", "clientCapabilities"])
+def test_request_rejeitado_no_envelope_tambem_e_logado(client, caplog, omitir):
+    # Regressao: o log ficava num middleware do SDK, que roda depois da validacao do _meta.
+    from conftest import rpc
+
+    # Arrange
+    caplog.set_level(logging.INFO, logger="central_salas")
+
+    # Act
+    status, b = rpc(client, "tools/list", {}, omitir=omitir, id_="rejeitado-1")
+
+    # Assert
+    assert status == 400 and b["error"]["code"] == -32602
+    linhas = [r.getMessage() for r in caplog.records if r.name == "central_salas"]
+    assert "method='tools/list' id='rejeitado-1' traceparent=-" in linhas
+
+
+def test_request_aceito_e_logado_uma_vez_e_segue_para_o_sdk(client, caplog):
+    from conftest import rpc
+
+    # Arrange
+    caplog.set_level(logging.INFO, logger="central_salas")
+
+    # Act
+    status, b = rpc(client, "tools/list", {}, id_="aceito-1")
+
+    # Assert
+    assert status == 200 and len(b["result"]["tools"]) == 3
+    linhas = [r.getMessage() for r in caplog.records if r.name == "central_salas"]
+    assert linhas.count("method='tools/list' id='aceito-1' traceparent=-") == 1
 
 
 def test_server_discover_declara_nome_e_capabilities_de_tools_e_resources(client):

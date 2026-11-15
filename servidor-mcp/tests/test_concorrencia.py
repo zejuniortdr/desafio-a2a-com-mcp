@@ -1,10 +1,10 @@
 """Estresse de reservas: o SDK roda tools sincronas em thread pool, entao a checagem de conflito e a escrita
 precisam ser atomicas tambem pela borda HTTP, nao so no repositorio."""
+
 import threading
 from concurrent.futures import ThreadPoolExecutor
 
 import pytest
-
 from conftest import call
 from test_mrtr import ACEITA_FUSCA, GARAGEM, H, disponibilidade, pausar, retomar
 
@@ -27,7 +27,9 @@ def em_paralelo(funcoes):
 def test_n_reservas_simultaneas_do_mesmo_intervalo_criam_exatamente_uma(client, rodada):
     # Arrange: sala-porao livre; cada cliente quer o mesmo horario
     base = {"sala": "sala-porao", "inicio": H("09:00"), "fim": H("10:00")}
-    chamadas = [lambda i=i: call(client, "reservar_sala", {**base, "responsavel": f"cli-{i}"}, id_=str(i)) for i in range(N)]
+    chamadas = [
+        lambda i=i: call(client, "reservar_sala", {**base, "responsavel": f"cli-{i}"}, id_=str(i)) for i in range(N)
+    ]
 
     # Act
     respostas = em_paralelo(chamadas)
@@ -43,9 +45,13 @@ def test_n_reservas_simultaneas_do_mesmo_intervalo_criam_exatamente_uma(client, 
 
 def test_ids_de_reserva_nunca_se_repetem_sob_concorrencia(client):
     # Arrange: N salas/horarios diferentes, todas livres
-    horas = [(f"{8 + i // 2:02d}:{(i % 2) * 30:02d}", f"{8 + (i + 1) // 2:02d}:{((i + 1) % 2) * 30:02d}") for i in range(12)]
+    horas = [
+        (f"{8 + i // 2:02d}:{(i % 2) * 30:02d}", f"{8 + (i + 1) // 2:02d}:{((i + 1) % 2) * 30:02d}") for i in range(12)
+    ]
     chamadas = [
-        lambda ini=ini, fim=fim: call(client, "reservar_sala", {"sala": "sala-mirante", "inicio": H(ini), "fim": H(fim), "responsavel": "x"})
+        lambda ini=ini, fim=fim: call(
+            client, "reservar_sala", {"sala": "sala-mirante", "inicio": H(ini), "fim": H(fim), "responsavel": "x"}
+        )
         for ini, fim in horas
     ]
 

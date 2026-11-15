@@ -59,7 +59,7 @@ Tudo vive em [`agente/src/agente_salas/ponte.py`](agente/src/agente_salas/ponte.
 Na **ida**, `_aplicar` recebe do `McpClient` (cliente httpx cru, sem callback de elicitation, então o `input_required` chega intacto) o resultado
 `input_required` e o transforma em `TASK_STATE_INPUT_REQUIRED`: guarda o `requestState`, a chave de `inputRequests` e o `enum` na própria `Task`
 e devolve ao cliente A2A, como mensagem da Task, somente a linha `alternativas: a, b`. Na **volta**, `continuar` recebe `escolha=<id>` num
-`SendMessage` com `taskId`, confere a escolha contra o `enum` guardado (fora dele a Task segue pausada e repete a lista) e repete o `tools/call`
+`SendMessage` com `taskId`, confere a escolha contra o `enum` guardado (fora dele a Task segue pausada e repete a lista, quantas vezes vier; só as 3 primeiras tentativas entram no `history`) e repete o `tools/call`
 com **id JSON-RPC novo**, `inputResponses` sob a mesma chave e o `requestState` ecoado sem abrir. O DTO de saída (`task_dto` em `a2a.py`) nunca
 serializa o estado da pausa.
 
@@ -72,7 +72,10 @@ serializa o estado da pausa.
 - **Validade:** 600 s (10 min), dentro da faixa de 5 a 30 min (`TTL_REQUEST_STATE_S` em `servidor-mcp/src/central_salas/app.py`).
   Expirado ou adulterado: `-32602` (coberto em `servidor-mcp/tests/test_mrtr.py`: 599 s conclui, 601 s rejeita).
 - **Capability de elicitation:** em conflito com alternativas, se o `_meta` do request não declara elicitation em form mode, o servidor responde
-  `-32021` com `data.requiredCapabilities` em vez de devolver o `input_required`.
+  `-32021` com `data.requiredCapabilities` em vez de devolver o `input_required`. Só `{"elicitation": {"form": {}}}` vale: `{"elicitation": {}}`
+  (elicitation em geral, que a spec aceita como form por compatibilidade) também recebe `-32021`, porque o enunciado pede a declaração de form mode.
+- **Log no stderr:** um middleware ASGI (`_LogMiddleware` em `app.py`) registra método, id e `traceparent` de todo `POST /mcp` antes do SDK,
+  inclusive os requests que o SDK rejeita na validação do `_meta` (`-32602`/HTTP 400).
 - **MRTR manual em vez de `Resolve/Elicit`:** a ferramenta devolve `InputRequiredResult` diretamente. O enunciado exige que o `requestState`
   carregue tudo de que o servidor precisa para reconstruir o pedido; com `Resolve`, o SDK sela só as respostas já dadas, não o pedido
   (`mcp/server/mcpserver/resolve.py`, docstring do módulo):
@@ -88,8 +91,15 @@ serializa o estado da pausa.
 - **Estado das Tasks:** no agente, dicionário em memória (`TaskStore`, sem lock: todo acesso acontece no event loop), um registro por Task
   com o próprio `requestState`. As reservas ficam em memória no servidor MCP; como o SDK roda tools síncronas em thread pool, a checagem de
   conflito e a escrita acontecem sob o mesmo lock (`ReservaRepo.reservar_se_livre`). Ambos somem no restart, o que o enunciado permite; o `requestState` é a exceção, porque é autocontido.
+- **Cliente MCP do agente sem o SDK:** o SDK `mcp` v2 é usado no servidor. O agente fala MCP por um cliente JSON-RPC mínimo sobre httpx
+  (`mcp_client.py`), porque precisa enxergar o `input_required` cru e pausar a Task; o cliente do SDK fecharia o ciclo sozinho via callback
+  de elicitation, que é o que o enunciado proíbe.
 - **A2A à mão:** JSON-RPC 2.0 mínimo (`SendMessage`, `GetTask`) sobre Starlette. `SendMessage` é síncrono e devolve a Task já pausada ou terminal
-  (`SUBMITTED` e `WORKING` são transições reais, validadas por máquina de estados; estado terminal é definitivo).
+  (`SUBMITTED` e `WORKING` são transições reais, validadas por máquina de estados; estado terminal é definitivo). Como não há streaming
+  (fora de escopo), o cliente só observa esses dois estados se consultar a Task durante o processamento.
+- **Alternativas dependem do estado:** as alternativas são calculadas no momento do pedido. No fluxo do avaliador, depois do passo 8 reservar
+  `sala-mirante` às 14h, repetir o passo 7 (passo 9) lista só `alternativas: sala-fusca`, o que está correto. Para ver de novo
+  `sala-fusca, sala-mirante`, reinicie o servidor MCP antes do passo 9.
 - **Erros A2A:** Task terminal `-32004` (`UnsupportedOperationError`); Task inexistente `-32001` (`TaskNotFoundError`); pedido fora do formato,
   ou mensagem para Task que não está aguardando resposta, `-32602`; método desconhecido `-32601`; requisição JSON-RPC inválida `-32600`;
   JSON inválido `-32700`.
@@ -104,7 +114,7 @@ serializa o estado da pausa.
 ## Saída do validador
 
 ```text
-trace-id desta execucao: a65b1efb1dda409ee3ff46f8d4b0bf69
+trace-id desta execucao: d1d8e863ebe78c14637b48a587bbb227
 procure esse valor no stderr do servidor MCP para conferir a propagacao do traceparent.
 
 PASS 01 tools/list traz as tres tools

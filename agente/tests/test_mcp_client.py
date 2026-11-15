@@ -2,11 +2,19 @@ import json
 
 import httpx
 import pytest
-
 from agente_salas.mcp_client import McpClient, McpError
 
 TRACE = "4bf92f3577b34da6a3ce929d0e0e4736"
-PAUSA = {"resultType": "input_required", "requestState": "ST", "inputRequests": {"k": {"method": "elicitation/create", "params": {"mode": "form", "requestedSchema": {"properties": {"sala": {"enum": ["a", "b"]}}}}}}}
+PAUSA = {
+    "resultType": "input_required",
+    "requestState": "ST",
+    "inputRequests": {
+        "k": {
+            "method": "elicitation/create",
+            "params": {"mode": "form", "requestedSchema": {"properties": {"sala": {"enum": ["a", "b"]}}}},
+        }
+    },
+}
 
 
 def cliente(respostas, vistos):
@@ -70,7 +78,10 @@ async def test_input_required_cru():
 
 async def test_retry_ecoa_state_e_respostas():
     vistos = []
-    c = cliente([{"resultType": "complete", "isError": False, "content": [{"text": "ok"}], "structuredContent": {"sala": "a"}}], vistos)
+    c = cliente(
+        [{"resultType": "complete", "isError": False, "content": [{"text": "ok"}], "structuredContent": {"sala": "a"}}],
+        vistos,
+    )
     respostas = {"k": {"action": "accept", "content": {"sala": "a"}}}
 
     r = await c.call_tool("reservar_sala", {"sala": "x"}, TRACE, respostas, "ST")
@@ -81,7 +92,16 @@ async def test_retry_ecoa_state_e_respostas():
 
 
 async def test_enum_const():
-    c = cliente([{"resultType": "input_required", "requestState": "S", "inputRequests": {"k": {"params": {"requestedSchema": {"properties": {"sala": {"const": "z"}}}}}}}], [])
+    c = cliente(
+        [
+            {
+                "resultType": "input_required",
+                "requestState": "S",
+                "inputRequests": {"k": {"params": {"requestedSchema": {"properties": {"sala": {"const": "z"}}}}}},
+            }
+        ],
+        [],
+    )
 
     r = await c.call_tool("t", {}, TRACE)
 

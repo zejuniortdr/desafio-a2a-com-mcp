@@ -2,10 +2,9 @@ import json
 
 import httpx
 import pytest
-
 from agente_salas.mcp_client import McpError, McpResult
 from agente_salas.pedido import PedidoInvalido
-from agente_salas.ponte import BridgeService
+from agente_salas.ponte import MAX_TENTATIVAS_REGISTRADAS, BridgeService
 from agente_salas.tasks import TaskNaoEncontrada, TaskState, TaskStore, TaskTerminal
 
 TRACE = "4bf92f3577b34da6a3ce929d0e0e4736"
@@ -32,15 +31,33 @@ class FakeMcp:
     async def call_tool(self, name, arguments, trace_id, input_responses=None, request_state=None):
         self.calls.append(("tools/call", trace_id, arguments, input_responses, request_state, name))
         if arguments["sala"] == "sala-x":
-            return McpResult("complete", is_error=True, text="Error executing tool reservar_sala: Sala inexistente: sala-x")
+            return McpResult(
+                "complete", is_error=True, text="Error executing tool reservar_sala: Sala inexistente: sala-x"
+            )
         if request_state is None and arguments["sala"] == "sala-garagem":
             self.n += 1
-            return McpResult("input_required", input_key="k", enum=["sala-fusca", "sala-mirante"], request_state=f"STATE-SEGREDO-{arguments['responsavel']}-{self.n}")
+            return McpResult(
+                "input_required",
+                input_key="k",
+                enum=["sala-fusca", "sala-mirante"],
+                request_state=f"STATE-SEGREDO-{arguments['responsavel']}-{self.n}",
+            )
         resp = (input_responses or {}).get("k", {})
         if resp.get("action") == "decline":
             return McpResult("complete", structured={"reservado": False, "motivo": "recusou"})
         sala = resp.get("content", {}).get("sala", arguments["sala"])
-        return McpResult("complete", structured={"reserva": "res-0003", "reservado": True, "sala": sala, "inicio": arguments["inicio"], "fim": arguments["fim"], "responsavel": arguments["responsavel"], "politica": "2026-11-01"})
+        return McpResult(
+            "complete",
+            structured={
+                "reserva": "res-0003",
+                "reservado": True,
+                "sala": sala,
+                "inicio": arguments["inicio"],
+                "fim": arguments["fim"],
+                "responsavel": arguments["responsavel"],
+                "politica": "2026-11-01",
+            },
+        )
 
 
 @pytest.fixture
@@ -67,7 +84,14 @@ async def test_sala_livre_conclui_com_artifact(ponte):
     assert t.state == TaskState.COMPLETED
     art = t.artifacts[0]
     assert art["name"] == "reserva"
-    assert json.loads(art["parts"][0]["text"]) == {"reserva": "res-0003", "sala": "sala-porao", "inicio": "2026-11-03T14:00:00-03:00", "fim": "2026-11-03T15:00:00-03:00", "responsavel": "Marty", "politica": "2026-11-01"}
+    assert json.loads(art["parts"][0]["text"]) == {
+        "reserva": "res-0003",
+        "sala": "sala-porao",
+        "inicio": "2026-11-03T14:00:00-03:00",
+        "fim": "2026-11-03T15:00:00-03:00",
+        "responsavel": "Marty",
+        "politica": "2026-11-01",
+    }
 
 
 async def test_descoberta_antes_da_primeira_chamada_e_trace(ponte, mcp):
@@ -148,14 +172,34 @@ async def test_escolha_fora_do_enum_mantem_pausa_sem_chamar_mcp(ponte, mcp):
     assert len(mcp.calls) == antes
 
 
-async def test_tentativas_fora_do_enum_tem_limite(ponte):
-    # Regressao: um cliente em loop com escolha invalida crescia o history da Task sem fim.
+async def test_escolhas_fora_do_enum_mantem_pausa_e_history_limitado(ponte):
+    # Regressao: na 3a escolha invalida a Task ia para CANCELED; o enunciado manda manter INPUT_REQUIRED.
+    # Arrange
     pausada = await ponte.iniciar(PEDIDO, TP)
+    tamanho_antes = len(pausada.history)
 
-    estados = [(await ponte.continuar(pausada.id, "escolha=sala-aquario", TP)).state for _ in range(3)]
+    # Act
+    estados = [(await ponte.continuar(pausada.id, "escolha=sala-aquario", TP)).state for _ in range(10)]
 
-    assert estados == [TaskState.INPUT_REQUIRED, TaskState.INPUT_REQUIRED, TaskState.CANCELED]
-    assert "Tentativas esgotadas" in texto_status(pausada) and pausada.request_state is None
+    # Assert
+    assert estados == [TaskState.INPUT_REQUIRED] * 10
+    assert texto_status(pausada) == "alternativas: sala-fusca, sala-mirante"
+    assert pausada.request_state is not None
+    assert len(pausada.history) - tamanho_antes == 2 * MAX_TENTATIVAS_REGISTRADAS
+
+
+async def test_escolha_valida_depois_de_muitas_fora_do_enum_conclui(ponte):
+    # Arrange
+    pausada = await ponte.iniciar(PEDIDO, TP)
+    for _ in range(MAX_TENTATIVAS_REGISTRADAS + 2):
+        await ponte.continuar(pausada.id, "escolha=sala-aquario", TP)
+
+    # Act
+    t = await ponte.continuar(pausada.id, "escolha=sala-fusca", TP)
+
+    # Assert
+    assert t.state == TaskState.COMPLETED
+    assert t.history[-2]["parts"][0]["text"] == "escolha=sala-fusca"
 
 
 @pytest.mark.parametrize("erro", [httpx.ConnectError("conexao recusada"), httpx.ConnectTimeout("timeout ao conectar")])

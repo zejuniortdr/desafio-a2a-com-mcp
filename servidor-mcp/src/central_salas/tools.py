@@ -79,7 +79,8 @@ def _existente(r: Reserva) -> ReservaExistente:
 def _exigir_elicitation_form(ctx: Context) -> None:
     caps = ctx.client_capabilities
     el = caps.elicitation if caps is not None else None
-    if el is not None and (el.form is not None or el.url is None):
+    # O enunciado exige a declaracao de form mode; {"elicitation": {}} (elicitation em geral) nao basta.
+    if el is not None and el.form is not None:
         return
     faltando = ClientCapabilities(elicitation=ElicitationCapability(form=FormElicitationCapability()))
     raise MCPError(
