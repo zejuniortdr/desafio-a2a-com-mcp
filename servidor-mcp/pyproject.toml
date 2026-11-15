@@ -20,3 +20,7 @@ where = ["src"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["src"]
+
+[tool.mutmut]
+source_paths = ["src/central_salas/"]
+tests_dir = ["tests/"]
