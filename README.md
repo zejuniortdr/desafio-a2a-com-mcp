@@ -114,7 +114,7 @@ serializa o estado da pausa.
 ## Saída do validador
 
 ```text
-trace-id desta execucao: 1506b0fb6eb248dbccead05de5a0da11
+trace-id desta execucao: d1d8e863ebe78c14637b48a587bbb227
 procure esse valor no stderr do servidor MCP para conferir a propagacao do traceparent.
 
 PASS 01 tools/list traz as tres tools
