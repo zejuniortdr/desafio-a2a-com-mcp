@@ -201,3 +201,46 @@ def test_versao_politica():
     versao = versao_politica((DADOS / "politica-de-uso.md").read_text(encoding="utf-8"))
 
     assert versao == "2026-11-01"
+
+
+@pytest.mark.parametrize(
+    "md,esperado",
+    [("versao:2026-11-01", "2026-11-01"), ("versao: 12:30:45", "12:30:45"), ("versao:   x  \n\n- regra: y", "x")],
+)
+def test_versao_politica_corta_so_no_primeiro_dois_pontos(md, esperado):
+    # Arrange / Act
+    versao = versao_politica(md)
+
+    # Assert
+    assert versao == esperado
+
+
+@pytest.fixture
+def fuso_local(monkeypatch):
+    import time
+
+    def usar(tz: str) -> None:
+        monkeypatch.setenv("TZ", tz)
+        time.tzset()
+
+    yield usar
+    monkeypatch.undo()
+    time.tzset()
+
+
+@pytest.mark.parametrize(
+    "tz,ini,fim",
+    [
+        ("UTC", "2026-11-03T21:00:00+00:00", "2026-11-03T22:00:00+00:00"),  # 18h-19h em SP; fora da janela se lido em UTC
+        ("Pacific/Kiritimati", "2026-11-03T19:00:00-03:00", "2026-11-03T20:00:00-03:00"),  # dia local diferente do de SP
+    ],
+)
+def test_janela_e_sempre_avaliada_no_fuso_de_sao_paulo(fuso_local, tz, ini, fim):
+    # Arrange
+    fuso_local(tz)
+
+    # Act
+    sala, i, f = validar("sala-aquario", ini, fim, SALAS)
+
+    # Assert
+    assert sala.id == "sala-aquario" and f - i == i.__class__.fromisoformat(fim) - i.__class__.fromisoformat(ini)

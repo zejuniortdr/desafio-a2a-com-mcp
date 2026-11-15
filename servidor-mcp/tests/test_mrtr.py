@@ -1,3 +1,5 @@
+import json
+import os
 import time
 from types import SimpleNamespace
 
@@ -97,7 +99,8 @@ def test_escolha_fora_do_enum_nao_reserva(client):
 
     _, b = retomar(client, chave, estado, {"action": "accept", "content": {"sala": "sala-aquario"}})
 
-    assert b["result"]["isError"] is True
+    assert b["result"]["isError"] is True and "Sem alternativas disponiveis no intervalo" in texto_de(b["result"])
+    assert disponibilidade(client, "sala-aquario", "14:00", "15:00")["livre"] is True
 
 
 def test_alternativa_tomada_entre_a_pausa_e_o_retry_nao_reserva_de_novo(client):
@@ -184,6 +187,50 @@ def test_secret_invalido_na_config(secret):
         carregar_config({"REQUEST_STATE_SECRET": secret})
 
 
+def test_secret_ausente_do_ambiente_e_config_invalida():
+    with pytest.raises(ConfigInvalida):
+        carregar_config({})
+
+
+def test_config_sem_argumento_le_os_valores_do_os_environ(monkeypatch):
+    monkeypatch.setenv("REQUEST_STATE_SECRET", SECRET)
+    monkeypatch.setenv("MCP_PORT", "7777")
+
+    cfg = carregar_config()
+
+    assert (cfg.port, cfg.secret) == (7777, SECRET)
+
+
+def test_mensagens_de_config_invalida_orientam_o_operador():
+    with pytest.raises(ConfigInvalida) as segredo:
+        carregar_config({})
+    with pytest.raises(ConfigInvalida) as porta:
+        carregar_config({"REQUEST_STATE_SECRET": SECRET, "MCP_PORT": "abc"})
+
+    assert str(segredo.value) == (
+        "REQUEST_STATE_SECRET ausente, fora do formato hex ou com menos de 32 bytes (64 caracteres hex). "
+        'Gere com: python3 -c "import secrets; print(secrets.token_hex(32))"'
+    )
+    assert str(porta.value) == "MCP_PORT deve ser um numero inteiro"
+
+
+def test_dados_dir_padrao_fica_tres_niveis_acima_do_modulo_config():
+    from pathlib import Path
+
+    from central_salas import config
+
+    cfg = carregar_config({"REQUEST_STATE_SECRET": SECRET})
+
+    assert cfg.dados_dir == Path(config.__file__).resolve().parents[3] / "dados"
+
+
+@pytest.mark.skipif("MUTANT_UNDER_TEST" in os.environ, reason="o mutmut relocaliza src/ e quebra o layout do repo")
+def test_dados_dir_padrao_e_a_pasta_dados_da_raiz_do_repo():
+    cfg = carregar_config({"REQUEST_STATE_SECRET": SECRET})
+
+    assert (cfg.dados_dir / "salas.json").is_file()
+
+
 def test_secret_valido():
     cfg = carregar_config({"REQUEST_STATE_SECRET": SECRET})
 
@@ -202,3 +249,86 @@ def test_config_le_porta_e_dados_e_nao_expoe_o_secret(tmp_path):
 def test_porta_invalida_na_config():
     with pytest.raises(ConfigInvalida):
         carregar_config({"REQUEST_STATE_SECRET": SECRET, "MCP_PORT": "abc"})
+
+
+@pytest.mark.parametrize("conteudo", ["isto nao e json", '{"sala": "sala-garagem"}', "[1, 2]"])
+def test_state_selado_com_conteudo_invalido_vira_32602(client, monkeypatch, conteudo):
+    # Arrange: o SDK sela qualquer texto; o servidor precisa rejeitar conteudo que ele mesmo nao produziria.
+    from central_salas import tools
+
+    with monkeypatch.context() as m:
+        m.setattr(tools, "json", SimpleNamespace(dumps=lambda *_a, **_k: conteudo, loads=json.loads))
+        chave, estado, _ = pausar(client)
+
+    # Act
+    status, b = retomar(client, chave, estado, ACEITA_FUSCA)
+
+    # Assert
+    assert b["error"]["code"] == -32602 and b["error"]["message"] == "requestState invalido"
+    assert disponibilidade(client, "sala-fusca", "14:00", "15:00")["livre"] is True
+
+
+def test_sem_capability_32021_tem_mensagem_e_nao_depende_de_caps_nulas(client):
+    # Arrange
+    from central_salas.tools import _exigir_elicitation_form
+    from mcp.shared.exceptions import MCPError
+
+    # Act
+    status, b = call(client, "reservar_sala", GARAGEM, caps={})
+    with pytest.raises(MCPError) as nulo:
+        _exigir_elicitation_form(SimpleNamespace(client_capabilities=None))
+
+    # Assert
+    assert b["error"]["message"] == "Client did not declare the form elicitation capability required by reservar_sala"
+    assert nulo.value.code == -32021
+
+
+def test_reservar_no_passado_e_permitido(client):
+    # Arrange: o enunciado diz que nenhuma regra depende da data de hoje
+    args = {"sala": "sala-porao", "inicio": "2001-01-02T10:00:00-03:00", "fim": "2001-01-02T11:00:00-03:00", "responsavel": "Doc"}
+
+    # Act
+    _, b = call(client, "reservar_sala", args)
+
+    # Assert
+    assert b["result"]["structuredContent"]["reservado"] is True
+
+
+def test_sala_livre_nao_exige_capability_de_elicitation(client):
+    # Arrange: so o caminho de conflito precisa de elicitation; sem conflito o -32021 nao se aplica
+    args = {"sala": "sala-porao", "inicio": H("09:00"), "fim": H("10:00"), "responsavel": "Doc"}
+
+    # Act
+    status, b = call(client, "reservar_sala", args, caps={})
+
+    # Assert
+    assert status == 200 and b["result"]["structuredContent"]["reservado"] is True
+
+
+def test_uma_unica_alternativa_continua_sendo_oferecida_e_aceita_no_retry(client):
+    # Arrange: fusca conflita com res-0002 (16-17h); o mirante e tomado e sobra so a garagem
+    fusca = {"sala": "sala-fusca", "inicio": H("16:00"), "fim": H("17:00"), "responsavel": "Doc"}
+    call(client, "reservar_sala", {**fusca, "sala": "sala-mirante", "responsavel": "Biff"})
+    chave, estado, r = pausar(client, fusca)
+
+    # Act
+    campo = r["inputRequests"][chave]["params"]["requestedSchema"]["properties"]["sala"]
+    _, b = retomar(client, chave, estado, {"action": "accept", "content": {"sala": "sala-garagem"}}, args=fusca)
+
+    # Assert
+    assert campo.get("enum") == ["sala-garagem"] or campo.get("const") == "sala-garagem"
+    assert b["result"]["structuredContent"]["sala"] == "sala-garagem"
+
+
+def test_nenhum_segredo_hardcoded_no_codigo_do_servidor():
+    import re
+    from pathlib import Path
+
+    # Arrange
+    fontes = list((Path(__file__).resolve().parents[1] / "src").rglob("*.py"))
+
+    # Act
+    achados = [f.name for f in fontes if re.search(r"\b[0-9a-fA-F]{32,}\b", f.read_text(encoding="utf-8"))]
+
+    # Assert
+    assert fontes and achados == []
