@@ -56,21 +56,24 @@ class Task:
     tentativas_invalidas: int = 0
     tocada_em: float = field(default_factory=lambda: monotonic())
 
-    def mensagem(self, role: str, texto: str, com_ids: bool = True, message_id: str | None = None) -> dict:
+    def mensagem(
+        self, role: str, texto: str, com_ids: bool = True, message_id: str | None = None, registrar: bool = True
+    ) -> dict:
         m: dict = {"messageId": message_id or novo_id("msg"), "role": role, "parts": [{"text": texto}]}
         if com_ids:
             m.update(taskId=self.id, contextId=self.context_id)
-        self.history.append(m)
+        if registrar:
+            self.history.append(m)
         return m
 
-    def transicionar(self, novo: TaskState, texto: str | None = None) -> None:
+    def transicionar(self, novo: TaskState, texto: str | None = None, registrar: bool = True) -> None:
         if self.state in TERMINAIS:
             raise TaskTerminal(f"Task {self.id} ja esta em estado terminal ({self.state.value})")
         if novo not in _PERMITIDAS[self.state]:
             raise ValueError(f"transicao invalida {self.state.value} -> {novo.value}")
         self.state = novo
         self.tocada_em = monotonic()
-        self.status_message = self.mensagem("ROLE_AGENT", texto) if texto is not None else None
+        self.status_message = self.mensagem("ROLE_AGENT", texto, registrar=registrar) if texto is not None else None
 
     def limpar_pausa(self) -> None:
         self.request_state = self.input_key = None

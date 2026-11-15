@@ -44,7 +44,9 @@ _FALHAS_MCP = (McpError, httpx.HTTPError, KeyError, IndexError, TypeError, Attri
 
 # Falha de conexao: o request nao saiu daqui, entao o servidor nao viu nada e nao houve efeito colateral.
 _NAO_CHEGOU = (httpx.ConnectError, httpx.ConnectTimeout)
-MAX_TENTATIVAS_INVALIDAS = 3
+# Escolhas fora do enum mantem a pausa sempre (enunciado); so as primeiras entram no history,
+# para um cliente em loop nao crescer a Task sem limite.
+MAX_TENTATIVAS_REGISTRADAS = 3
 _CANCELADA = "Processamento interrompido antes de concluir (chamador cancelou ou expirou o prazo)"
 
 
@@ -94,15 +96,13 @@ class BridgeService:
         escolha = parse_pedido(texto)
         if not isinstance(escolha, Escolha):
             raise PedidoInvalido(f"Task {task.id} aguarda a resposta da pausa: escolha=<id da sala> ou escolha=recusar")
-        task.mensagem("ROLE_USER", texto, message_id=message_id)
         if escolha.valor != "recusar" and escolha.valor not in task.enum:
             task.tentativas_invalidas += 1
-            if task.tentativas_invalidas >= MAX_TENTATIVAS_INVALIDAS:
-                task.limpar_pausa()
-                task.transicionar(TaskState.CANCELED, f"Tentativas esgotadas: {MAX_TENTATIVAS_INVALIDAS} escolhas fora das alternativas")
-            else:
-                task.transicionar(TaskState.INPUT_REQUIRED, _alternativas(task.enum))
+            registrar = task.tentativas_invalidas <= MAX_TENTATIVAS_REGISTRADAS
+            task.mensagem("ROLE_USER", texto, message_id=message_id, registrar=registrar)
+            task.transicionar(TaskState.INPUT_REQUIRED, _alternativas(task.enum), registrar=registrar)
             return task
+        task.mensagem("ROLE_USER", texto, message_id=message_id)
         trace_id = trace_id_de(traceparent) or task.trace_id
         resposta = {"action": "decline"} if escolha.valor == "recusar" else {"action": "accept", "content": {"sala": escolha.valor}}
         chave, estado, pedido = task.input_key, task.request_state, task.pedido

@@ -5,7 +5,7 @@ import pytest
 
 from agente_salas.mcp_client import McpError, McpResult
 from agente_salas.pedido import PedidoInvalido
-from agente_salas.ponte import BridgeService
+from agente_salas.ponte import MAX_TENTATIVAS_REGISTRADAS, BridgeService
 from agente_salas.tasks import TaskNaoEncontrada, TaskState, TaskStore, TaskTerminal
 
 TRACE = "4bf92f3577b34da6a3ce929d0e0e4736"
@@ -148,14 +148,34 @@ async def test_escolha_fora_do_enum_mantem_pausa_sem_chamar_mcp(ponte, mcp):
     assert len(mcp.calls) == antes
 
 
-async def test_tentativas_fora_do_enum_tem_limite(ponte):
-    # Regressao: um cliente em loop com escolha invalida crescia o history da Task sem fim.
+async def test_escolhas_fora_do_enum_mantem_pausa_e_history_limitado(ponte):
+    # Regressao: na 3a escolha invalida a Task ia para CANCELED; o enunciado manda manter INPUT_REQUIRED.
+    # Arrange
     pausada = await ponte.iniciar(PEDIDO, TP)
+    tamanho_antes = len(pausada.history)
 
-    estados = [(await ponte.continuar(pausada.id, "escolha=sala-aquario", TP)).state for _ in range(3)]
+    # Act
+    estados = [(await ponte.continuar(pausada.id, "escolha=sala-aquario", TP)).state for _ in range(10)]
 
-    assert estados == [TaskState.INPUT_REQUIRED, TaskState.INPUT_REQUIRED, TaskState.CANCELED]
-    assert "Tentativas esgotadas" in texto_status(pausada) and pausada.request_state is None
+    # Assert
+    assert estados == [TaskState.INPUT_REQUIRED] * 10
+    assert texto_status(pausada) == "alternativas: sala-fusca, sala-mirante"
+    assert pausada.request_state is not None
+    assert len(pausada.history) - tamanho_antes == 2 * MAX_TENTATIVAS_REGISTRADAS
+
+
+async def test_escolha_valida_depois_de_muitas_fora_do_enum_conclui(ponte):
+    # Arrange
+    pausada = await ponte.iniciar(PEDIDO, TP)
+    for _ in range(MAX_TENTATIVAS_REGISTRADAS + 2):
+        await ponte.continuar(pausada.id, "escolha=sala-aquario", TP)
+
+    # Act
+    t = await ponte.continuar(pausada.id, "escolha=sala-fusca", TP)
+
+    # Assert
+    assert t.state == TaskState.COMPLETED
+    assert t.history[-2]["parts"][0]["text"] == "escolha=sala-fusca"
 
 
 @pytest.mark.parametrize("erro", [httpx.ConnectError("conexao recusada"), httpx.ConnectTimeout("timeout ao conectar")])
