@@ -122,10 +122,17 @@ def test_retry_sem_a_chave_da_pausa_32602(client):
     assert status == 400 and b["error"]["code"] == -32602
 
 
-def test_elicitation_vazia_equivale_a_form_mode(client):
-    _, b = call(client, "reservar_sala", GARAGEM, caps={"elicitation": {}})
+def test_elicitation_sem_form_explicito_recebe_32021(client):
+    # Regressao: {"elicitation": {}} era aceito como form mode; o enunciado exige declarar form mode.
+    # Arrange
+    caps = {"elicitation": {}}
 
-    assert b["result"]["resultType"] == "input_required"
+    # Act
+    status, b = call(client, "reservar_sala", GARAGEM, caps=caps)
+
+    # Assert
+    assert status == 400 and b["error"]["code"] == -32021
+    assert b["error"]["data"]["requiredCapabilities"] == {"elicitation": {"form": {}}}
 
 
 def test_elicitation_so_url_nao_serve_32021(client):
