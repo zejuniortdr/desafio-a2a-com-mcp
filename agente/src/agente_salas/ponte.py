@@ -5,6 +5,7 @@ alternativas sao decisao do servidor MCP; o agente so traduz protocolo.
 """
 from __future__ import annotations
 
+import asyncio
 import json
 import re
 import secrets
@@ -44,6 +45,7 @@ _FALHAS_MCP = (McpError, httpx.HTTPError, KeyError, IndexError, TypeError, Attri
 # Falha de conexao: o request nao saiu daqui, entao o servidor nao viu nada e nao houve efeito colateral.
 _NAO_CHEGOU = (httpx.ConnectError, httpx.ConnectTimeout)
 MAX_TENTATIVAS_INVALIDAS = 3
+_CANCELADA = "Processamento interrompido antes de concluir (chamador cancelou ou expirou o prazo)"
 
 
 def _descrever(err: Exception) -> str:
@@ -76,6 +78,12 @@ class BridgeService:
             return self._aplicar(task, resultado, politica)
         except _FALHAS_MCP as err:
             return self._falhar(task, _descrever(err))
+        except asyncio.CancelledError:
+            self._falhar(task, _CANCELADA)  # timeout/desconexao do chamador: nunca deixar a Task em WORKING
+            raise
+        except Exception as err:  # bug nosso: a Task ainda assim sai de WORKING, e o erro sobe para a borda
+            self._falhar(task, f"Erro interno do agente: {type(err).__name__}")
+            raise
 
     async def continuar(self, task_id: str, texto: str, traceparent: str | None, message_id: str | None = None) -> Task:
         task = self._store.get(task_id)
@@ -113,6 +121,12 @@ class BridgeService:
             return task
         except _FALHAS_MCP as err:
             return self._falhar(task, _descrever(err))
+        except asyncio.CancelledError:
+            self._falhar(task, _CANCELADA)  # o servidor pode ter reservado: nao devolver a pausa para um retry duplicado
+            raise
+        except Exception as err:  # bug nosso: a Task ainda assim sai de WORKING, e o erro sobe para a borda
+            self._falhar(task, f"Erro interno do agente: {type(err).__name__}")
+            raise
 
     def _aplicar(self, task: Task, r: McpResult, politica: str) -> Task:
         if r.kind == "input_required":
